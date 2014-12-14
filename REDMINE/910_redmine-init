@@ -1,0 +1,101 @@
+#!/bin/sh
+
+# REDMINE
+# Maintainer: @umezawa
+# Authors: tomoki.umezawa@gmo-gc.com, @umezawa
+
+### BEGIN INIT INFO
+# Provides:          redmine
+# Required-Start:    $local_fs $remote_fs $network $syslog redis-server
+# Required-Stop:     $local_fs $remote_fs $network $syslog
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Redmine
+# Description:       Redmine
+# chkconfig: - 75 25
+### END INIT INFO
+
+export PATH=/bin:/usr/bin:/sbin:/usr/sbin:/usr/local/bin
+
+APP_NAME=redmine
+APP_ROOT="/var/lib/$APP_NAME" 
+APP_PATH="/redmine" 
+CONFIGS="$APP_ROOT/config/unicorn.rb" 
+PID="$APP_ROOT/tmp/unicorn.pid" 
+ENV=production
+PORT=5001
+
+UNICORN_OPTS="-D -E $ENV -c $CONFIGS --path $APP_PATH -p $PORT" 
+
+start()
+{
+  if [ -e $PID ]; then
+    echo "$APP_NAME already started";
+    exit 1;
+  fi
+  echo "start $APP_NAME";
+  cd $APP_ROOT
+  bundle exec unicorn_rails $UNICORN_OPTS
+}
+
+stop()
+{
+  if [ ! -e $PID ]; then
+    echo "$APP_NAME not started";
+    exit 1;
+  fi
+  echo "stop $APP_NAME";
+  kill -QUIT `cat ${PID}`
+  rm -f $PID
+}
+
+force_stop()
+{
+  if [ ! -e $PID ]; then
+    echo "$APP_NAME not started";
+    exit 1;
+  fi
+  echo "stop $APP_NAME";
+  kill -TERM `cat ${PID}`
+  rm -f $PID
+}
+
+reload()
+{
+  if [ ! -e $PID ]; then
+    echo "$APP_NAME not started";
+    start
+    exit 0;
+  fi
+  echo "reload $APP_NAME";
+  kill -HUP `cat ${PID}`
+}
+
+restart()
+{
+  stop
+  start
+}
+
+case "$1" in
+  start)
+    start
+    ;;
+  stop)
+    stop
+    ;;
+  force-stop)
+    force_stop
+    ;;
+  reload)
+    reload
+    ;;
+  restart)
+    restart
+    ;;
+  *)
+    echo "Syntax Error: release [start|stop|force-stop|reload|restart]" 
+    ;;
+esac
+
+exit

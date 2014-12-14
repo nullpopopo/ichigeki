@@ -1,0 +1,242 @@
+#!/bin/bash
+LANG=C
+SPECFILE=ruby.spec
+REDMINEVERSION=2.5.0
+DOMAIN=example.com
+
+# see this site
+# http://blog.redmine.jp/articles/2_5/installation_centos/
+
+################################################################################
+# Nginx Install
+sudo touch /etc/yum.repos.d/centos.alt.ru.repo
+sudo chmod 666 /etc/yum.repos.d/centos.alt.ru.repo
+
+echo '[CentALT]
+name=CentALT Packages for Enterprise Linux 6 - $basearch
+baseurl=http://mirror.sysadminguide.net/centalt/repository/centos/6/$basearch/
+enabled=0
+gpgcheck=0' > /etc/yum.repos.d/centos.alt.ru.repo
+
+sudo chmod 644 /etc/yum.repos.d/centos.alt.ru.repo
+
+sudo yum -y --enablerepo=CentALT install nginx
+
+################################################################################
+
+################################################################################
+# VirtualHost Create
+IPADDR=$(ifconfig eth0 | egrep '(inet addr)' | awk '{print $2}' | cut -b 6-)
+
+sudo mkdir -p /home/logs/${IPADDR}
+sudo mkdir -p /home/vhosts/${IPADDR}/{public_html,src}
+sudo chown -R nginx:${ADMUSER} /home/vhosts/${IPADDR}
+sudo chmod -R g+w /home/vhosts/*
+################################################################################
+
+
+################################################################################
+# Nginx config Copy , Edit and Start
+sudo cp -p /etc/nginx/nginx.conf /etc/nginx/nginx.conf.orig
+sudo mv 900_denyhosts /etc/nginx/denyhosts
+sudo chown root. /etc/nginx/denyhosts
+sudo mv 901_nginx.conf /etc/nginx/nginx.conf
+sudo sed -i s/_IPADDR_/$(echo ${IPADDR})/g /etc/nginx/nginx.conf
+sudo chown root. /etc/nginx/nginx.conf
+
+sudo mkdir -p /etc/logrotate.d/BACKUP
+sudo cp -p /etc/logrotate.d/nginx /etc/logrotate.d/BACKUP/nginx.orig
+sudo sed -i "s/\\/var\\/log\\/nginx\\/\\*log/\\/var\\/log\\/nginx\\/\\*log \\/home\\/logs\\/\\*\\/access_log \\/home\\/logs\\/\\*\\/error_log/g;s/rotate 10/rotate 366/" /etc/logrotate.d/nginx
+
+sudo service nginx start
+sudo chkconfig nginx on
+sudo chkconfig nginx --list
+################################################################################
+
+################################################################################
+# Devel-Environment Install
+sudo yum -y install zlib-devel openssl-devel readline-devel ncurses-devel \
+gdbm-devel db4-devel libffi-devel tk-devel libyaml-devel curl-devel
+################################################################################
+
+################################################################################
+# rpm Dir Make
+mkdir -p ~/rpm/{BUILD,SRPMS,SPECS,SOURCES,RPMS}
+echo "%_topdir $HOME/rpm" > $HOME/.rpmmacros
+
+[ ! -d ~/bin ] && mkdir -p ~/bin
+mv rubycheck ~/bin
+chmod 755 ~/bin/
+################################################################################
+
+################################################################################
+# Ruby Download
+cd ~/rpm/SOURCES/
+#wget $(rubycheck | head -n 1)
+# Redmine 2.5は2014年2月にリリースされたRuby 2.1には対応していません。
+# curl http://blog.redmine.jp/articles/2_5/installation_centos/
+wget ftp://ftp.ruby-lang.org/pub/ruby/ruby-2.0.0-p481.tar.gz
+[ ! -d ~/src ] && mkdir -p ~/src
+cp -p ruby-*.tar.gz ~/src/
+cd
+################################################################################
+
+################################################################################
+# specfile make
+cp -p ~/${SPECFILE}.orig ~/rpm/SPECS/${SPECFILE}
+mv ~/${SPECFILE}.orig ~/src/
+cd ~/rpm/SOURCES/
+if [ -f ruby-[0-9]\.[0-9]\.[0-9]\.tar.gz ];
+  then
+    sed -i "s/_VERSION_/$(ls | \
+    grep ruby-[0-9]\.[0-9]\.[0-9]\.tar.gz | \
+    sed -e 's/ruby-//;s/\.tar.gz//')/" ~/rpm/SPECS/${SPECFILE}
+
+    sed -i 's/^%define[[:space:]]*rubyminorver[[:space:]]*_MINORVER_//' ~/rpm/SPECS/${SPECFILE}
+
+    sed -i "s/_MAJORVER_/$(ls | \
+    grep ruby-[0-9]\.[0-9]\.[0-9]\.tar.gz | \
+    sed -e 's/ruby-//;s/\.[0-9]\.tar.gz//')/" ~/rpm/SPECS/${SPECFILE}
+
+    sed -i 's/-%{rubyminorver}//g;s/%{rubyminorver}//g' ~/rpm/SPECS/${SPECFILE}
+fi
+
+if [ -f ruby-[0-9]\.[0-9]\.[0-9]-p[0-9]*.tar.gz ];
+  then
+    sed -i "s/_VERSION_/$(ls | \
+    grep ruby-[0-9]\.[0-9]\.[0-9]-p[0-9]*\.tar.gz | \
+    sed -e 's/ruby-//;s/-p[0-9]*\.tar.gz//')/" ~/rpm/SPECS/${SPECFILE}
+
+    sed -i "s/_MINORVER_/$(ls | \
+    grep ruby-[0-9]\.[0-9]\.[0-9]-p[0-9]*\.tar.gz | \
+    sed -e 's/ruby-[0-9]\.[0-9]\.[0-9]-//;s/\.tar.gz//')/" ~/rpm/SPECS/${SPECFILE}
+
+    sed -i "s/_MAJORVER_/$(ls | \
+    grep ruby-[0-9]\.[0-9]\.[0-9]-p[0-9]*\.tar.gz | \
+    sed -e 's/ruby-//;s/\.[0-9]-p[0-9]*\.tar.gz//')/" ~/rpm/SPECS/${SPECFILE}
+fi
+cd
+################################################################################
+
+################################################################################
+# rpm build
+rpmbuild -bb ~/rpm/SPECS/${SPECFILE}
+################################################################################
+
+################################################################################
+# ruby install
+cd ~/rpm/RPMS/$(uname -m)/
+sudo rpm -ivvh $(ls ruby* | grep -v debuginfo)
+################################################################################
+
+################################################################################
+# MySQL and Header files install
+sudo yum -y install mysql-server mysql-devel
+################################################################################
+
+################################################################################
+# ImageMagick , Header files and Japanese Font install
+sudo yum -y install ImageMagick ImageMagick-devel ipa-pgothic-fonts
+################################################################################
+
+################################################################################
+# bundler install
+sudo gem install bundler --no-rdoc --no-ri
+################################################################################
+
+################################################################################
+# my.cnf edit
+sudo cp -p /etc/my.cnf /etc/my.cnf.orig
+sudo cp -p /etc/my.cnf ~/
+sudo chmod 666 ~/my.cnf
+sed -i 's/\[mysqld\]/\[mysqld\]\ncharacter-set-server=utf8/' ~/my.cnf
+echo >> ~/my.cnf
+echo '[mysql]
+default-character-set=utf8' >> ~/my.cnf
+sudo mv ~/my.cnf /etc/my.cnf
+sudo chmod 644 /etc/my.cnf
+################################################################################
+
+################################################################################
+# MySQL Start
+DBNAME=db_redmine
+DBUSER=user_redmine
+
+sudo chkconfig mysqld on
+sudo chkconfig mysqld --list
+sudo service mysqld start
+
+PARAMFILE=~/MySQLPARAM
+echo "user root $(cat /dev/urandom | tr -dc '[:alnum:]' | head -c 8)" > ${PARAMFILE}
+echo "DBPARAM ${DBNAME} ${DBUSER} $(cat /dev/urandom | tr -dc '[:alnum:]' | head -c 8)" >> ${PARAMFILE}
+PW=$(grep ^DBPARAM ${PARAMFILE} | awk '{print $NF}')
+
+mysqladmin -u root password "$(grep ^user ${PARAMFILE} | awk '{print $NF}')"
+
+mysql -u root -p$(grep ^user ${PARAMFILE} | awk '{print $NF}') \
+-e "create database ${DBNAME} character set utf8;"
+
+mysql -u root -p$(grep ^user ${PARAMFILE} | awk '{print $NF}') \
+-e "GRANT ALL PRIVILEGES on ${DBNAME}.* to ${DBUSER}@localhost identified by \"${PW}\";"
+
+mysql -u root -p$(grep ^user ${PARAMFILE} | awk '{print $NF}') \
+-e "select user,host,password from mysql.user;"
+
+mysql -u root -p$(grep ^user ${PARAMFILE} | awk '{print $NF}') \
+-e "show databases;"
+
+cat ${PARAMFILE}
+################################################################################
+
+################################################################################
+# Redmine Install
+mkdir -p ~/src/redmine
+cd ~/src/redmine
+curl -O http://www.redmine.org/releases/redmine-${REDMINEVERSION}.tar.gz
+tar xzf redmine-${REDMINEVERSION}.tar.gz
+sudo mv redmine-${REDMINEVERSION} /var/lib/redmine
+
+cd /var/lib/redmine/config
+cat database.yml.example | grep -v "#" | grep . | head -n 7 | \
+sed -e "s/redmine$/db_redmine/;s/root/$(cat ~/MySQLPARAM | grep DBPARAM | \
+awk '{print $3}')/;s/\"\"/$(cat ~/MySQLPARAM | grep DBPARAM | \
+awk '{print $NF}')/" > database.yml
+
+echo "production:
+  email_delivery:
+    delivery_method: :smtp
+    smtp_settings:
+      address: localhost
+      port: 25
+      domain: ${DOMAIN}
+  rmagick_font_path: /usr/share/fonts/ipa-pgothic/ipagp.ttf" > configuration.yml
+
+cd /var/lib/redmine/
+bundle install --without development test
+
+bundle exec rake generate_secret_token
+RAILS_ENV=production bundle exec rake db:migrate
+
+echo "gem 'unicorn'" > Gemfile.local
+bundle install
+
+cp -p config.ru config.ru.orig
+echo "require ::File.expand_path('../config/environment',  __FILE__)
+
+if ENV['RAILS_RELATIVE_URL_ROOT']
+  map ENV['RAILS_RELATIVE_URL_ROOT'] do
+    run RedmineApp::Application
+  end
+else
+  run RedmineApp::Application
+end" > config.ru
+
+echo "working_directory '/var/lib/redmine'" > config/unicorn.rb
+
+sudo mv ~/910_redmine-init /etc/init.d/redmine
+sudo chmod 700 /etc/init.d/redmine
+sudo chkconfig --add redmine
+sudo chkconfig redmine on
+sudo chkconfig redmine --list
+sudo service redmine start
+################################################################################

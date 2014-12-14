@@ -1,0 +1,26 @@
+#!/bin/bash
+LANG=C
+MAILTO=${USER}
+SUBJECT="$(basename $0) $(date '+%Y/%m/%d %H:%M')"
+
+CURL() {
+    curl -s ftp://ftp.ruby-lang.org/pub/ruby/                  |
+    cut -b 57-                                                 |
+    grep ^ruby                                                 |
+    grep tar.gz$                                               |
+    sort -nr                                                   |
+    awk '{print $1}'                                           |
+    sed -e s/^/ftp:\\/\\/ftp.ruby-lang.org\\/pub\\/ruby\\//g
+}
+
+case "$1" in
+    [mM][aA][iI][lL])
+      CURL | mail -s "${SUBJECT}" ${MAILTO}
+      ;;
+    [hH][eE][lL][pP]|-[hH][eE][lL][pP]|--[hH][eE][lL][pP])
+      echo "USAGE: $(basename $0) or $(basename $0) mail"
+      ;;
+    *)
+      CURL
+      ;;
+esac
