@@ -123,7 +123,6 @@ fi
 
 # PasswordFile Remove
 rm -f PASSWD
-echo ""
 ################################################################
 
 ################################################################
@@ -137,7 +136,6 @@ Defaults:${ADMINUSER} !requiretty
 Defaults:${ADMINUSER} env_keep += SSH_AUTH_SOCK
 _EOL_
 fi
-echo ""
 ################################################################
 
 ################################################################
@@ -157,7 +155,10 @@ if [ ! -f /etc/yum.repos.d/remi.repo ];
 then
   yum -y install ${REMIREPOURI}
 fi
+################################################################
 
+################################################################
+# Useful tools Install
 yum -y install \
 bind-utils \
 dstat \
@@ -228,7 +229,6 @@ fi
 if [ ${OSVER} = 6 ];
 then
 iptables -L -n -v
-echo ""
 service iptables stop
 iptables -P INPUT DROP
 iptables -P OUTPUT ACCEPT
@@ -247,9 +247,7 @@ done
 service iptables save
 service iptables start
 chkconfig iptables on
-echo ""
 iptables -L -n -v
-echo ""
 fi
 
 if [ ${OSVER} = 7 ];
@@ -290,7 +288,6 @@ then
   sed -i '/mysql56-community/,/gpgcheck/s/enabled=1/enabled=0/g' /etc/yum.repos.d/mysql-community.repo
   sed -i '/mysql57-community-dmr/,/^enabled/s/0/1/' /etc/yum.repos.d/mysql-community.repo
 fi
-
 yum -y install mysql-community-server
 ################################################################
 
@@ -389,7 +386,7 @@ then
   mysql -e "delete from mysql.user where user='';"
   mysql -e 'FLUSH PRIVILEGES;'
   mysql -e "select user,host,password from mysql.user;"
-  echo ""
+ 
 fi
 if [ ${MYSQLVER} = 5.7 ];
 then
