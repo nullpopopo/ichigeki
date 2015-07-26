@@ -37,7 +37,7 @@ ADMINUSER=nullpopopo
 ADMINUSERPW=$(cat /dev/urandom | tr -dc '[:alnum:]' | head -c 16)
 ADMINUSERUID=500
 ADMINUSERGID=500
-ADMINUSERPUBKEY="ssh-rsa AAAAB3NzaC1yc2EAAAABIwAAAQEAtLLVpuwe1gzoxMXfAvxfCvhYlVydUpHbQfVJzo6cX4HHJ455XERPB1krcEQzJCNbAv4x3+xF0MjntO1fX+1bm6XlBKG27V3hKCiWanEv1DitEdoppt5hHc3VPr22GnB5DXJ2jgmvMAEXl35t1GCYmYf7I4zc4P2FVfOoZ4W8Q1nF3U5gJITtJkwNIdHfq8WD+hFvzEH7lWbWfjQaNLUXBKfl7Vpbthsy8f7Txrz5UdO1Dp59lIxx9dJrrgA8i62x4FEncjXFXWMvfdw5BwQ1tGuQtT1LwMO72QdtCastvBJCmAOx+C/Z5oDy2MsWdsJwVX9KXTDYW8kBjqqZaWFf8w=="
+ADMINUSERPUBKEY="ssh-rsa AAAAxxxxxxxx=="
 
 # Store the version of the CentOS Distribution to a variable
 OSVER=$(rpm -qi centos-release | grep ^Version | awk '{print $3}')
