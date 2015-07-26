@@ -1,224 +1,688 @@
 #!/bin/bash
-# @sacloud-once
+set -eux
+LANG=C
 
-DBNAME=wordpress
-DBUSER=wpuser
-ETH0=$(ip a show eth0 | grep inet | grep -v inet6 | awk '{print $2}' | sed -e "s/\/[0-9]*//")
-HOME=/root
-export HOME
-USER=root
-export USER
-################################################################################
-# Section1 yum update
+BLOGTITLE=
+BLOGADMIN=
+BLOGPW=
+ADMINMAIL=
 
+WPVERSION=4.2.2
+WPLOCALE=ja
+#WPVERSION=
+#WPLOCALE=
+
+NEWHOSTNAME=www
+NEWDOMAIN=example.com
+NEWFQDN=${NEWHOSTNAME}.${NEWDOMAIN}
+
+# Specify the SSH port
+SSHPORT=
+
+# Store the MySQL version to the variable
+#MYSQLVER=5.6
+MYSQLVER=5.7
+# Store the MySQL ServerID to variable
+SERVERID=1
+
+# Store the trusted network to an array
+TRUSTSUBNET=()
+TRUSTSUBNET=("
+127.0.0.1/32
+192.168.0.0/24
+")
+
+# Store a UNIX account to a variable
+ADMINUSER=hamada
+ADMINUSERPW=$(cat /dev/urandom | tr -dc '[:alnum:]' | head -c 16)
+ADMINUSERUID=500
+ADMINUSERGID=500
+ADMINUSERPUBKEY="ssh-rsa AAAAB3NzaC1yc2EAAAABIwAAAQEAtLLVpuwe1gzoxMXfAvxfCvhYlVydUpHbQfVJzo6cX4HHJ455XERPB1krcEQzJCNbAv4x3+xF0MjntO1fX+1bm6XlBKG27V3hKCiWanEv1DitEdoppt5hHc3VPr22GnB5DXJ2jgmvMAEXl35t1GCYmYf7I4zc4P2FVfOoZ4W8Q1nF3U5gJITtJkwNIdHfq8WD+hFvzEH7lWbWfjQaNLUXBKfl7Vpbthsy8f7Txrz5UdO1Dp59lIxx9dJrrgA8i62x4FEncjXFXWMvfdw5BwQ1tGuQtT1LwMO72QdtCastvBJCmAOx+C/Z5oDy2MsWdsJwVX9KXTDYW8kBjqqZaWFf8w=="
+
+# Store the version of the CentOS Distribution to a variable
+OSVER=$(rpm -qi centos-release | grep ^Version | awk '{print $3}')
+
+REMIREPOURI=http://remi.kazukioishi.net/enterprise/remi-release-${OSVER}.rpm
+
+WP=/usr/local/bin/wp
+WPDOWNLOADURI=https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar
+
+RUBYSPECURI=https://raw.githubusercontent.com/hansode/ruby-2.1.x-rpm/master/ruby21x.spec
+
+# Leave to log all the subsequent processing
+LOGDIR=${HOME}/logs
+LOGFILE=${LOGDIR}/$(uname -n)_$(date +%Y%m%d%H%M%S)_$(basename ${0})_${$}.LOG
+mkdir -p ${LOGDIR}
+exec >> ${LOGFILE}
+exec 2>&1
+
+#
+date
+#
+################################################################
+# SELinux Disable
+getenforce
+setenforce 0
+getenforce
+sed -i.orig 's/enforcing$/disabled/' /etc/selinux/config
+################################################################
+
+################################################################
+# Create VirtualHost DocumentRoot
+mkdir -p /home/vhosts/${NEWFQDN}
+VHDIR=/home/vhosts/${NEWFQDN}/public_html
+################################################################
+
+################################################################
+# Generate the parameters of the DB
+NUM=$(ls /home/vhosts/ | wc -l)
+DBNAME=$(printf "wpdb%04d" ${NUM})
+DBUSER=$(printf "user%04d" ${NUM})
+DBUSERPW=$(cat /dev/urandom | tr -dc '[:alnum:]' | head -c 8)
+MYSQLROOTPW=$(cat /dev/urandom | tr -dc '[:alnum:]' | head -c 16)
+################################################################
+
+################################################################
+# Group ADD
+if [ ! 0 = $(grep ${ADMINUSER} /etc/group > /dev/null ; echo $?) ];
+then
+  if [ ! 0 = $(grep ${ADMINUSERGID} /etc/group > /dev/null ; echo $?) ];
+  then
+    echo "Group ADD ${ADMINUSERGID} ${ADMINUSER}"
+    groupadd -g ${ADMINUSERGID} ${ADMINUSER}
+  else
+    echo "Group ADD ${ADMINUSER}"
+    groupadd ${ADMINUSER}
+  fi
+fi
+
+# User ADD
+if [ ! 0 = $(grep ${ADMINUSER} /etc/passwd > /dev/null ; echo $?) ];
+then
+if [ ! 0 = $(grep ${ADMINUSERUID} /etc/passwd > /dev/null ; echo $?) ];
+  then
+    echo "User ADD ${ADMINUSERUID} ${ADMINUSER}"
+    useradd -u ${ADMINUSERUID} -g ${ADMINUSERGID} ${ADMINUSER}
+  else
+    echo "User ADD ${ADMINUSER}"
+    useradd ${ADMINUSER}
+  fi
+  echo ${ADMINUSER}:${ADMINUSERPW} | tee PASSWD
+  chpasswd < PASSWD
+  mkdir -p /home/${ADMINUSER}/.ssh/
+  chmod 711 /home/${ADMINUSER}/
+  chmod 700 /home/${ADMINUSER}/.ssh/
+  touch /home/${ADMINUSER}/.ssh/authorized_keys
+  chmod 600 /home/${ADMINUSER}/.ssh/authorized_keys
+cat << _EOL_ | tee /home/${ADMINUSER}/.ssh/authorized_keys
+${ADMINUSERPUBKEY}
+_EOL_
+chown -R ${ADMINUSER}. /home/${ADMINUSER}/.ssh/
+fi
+
+# PasswordFile Remove
+rm -f PASSWD
+echo ""
+################################################################
+
+################################################################
+# sudoers Add
+if [ 0 = $(grep ${ADMINUSER} /etc/passwd > /dev/null ; echo $?) -a ! -f /etc/sudoers.d/${ADMINUSER} ];
+then
+echo "Sudoers ADD ${ADMINUSER}"
+cat << _EOL_ | tee /etc/sudoers.d/${ADMINUSER}
+${ADMINUSER}        ALL=(ALL)       NOPASSWD: ALL
+Defaults:${ADMINUSER} !requiretty
+Defaults:${ADMINUSER} env_keep += SSH_AUTH_SOCK
+_EOL_
+fi
+echo ""
+################################################################
+
+################################################################
+# epel Repository Install
+if [ ! -f /etc/yum.repos.d/epel.repo ];
+then
+  yum -y install epel-release
+  mkdir /etc/yum.repos.d/BACKUP/
+  cp -p /etc/yum.repos.d/epel.repo{,.orig}
+  sed -i "s/enabled=1/enabled=0/" /etc/yum.repos.d/epel.repo
+fi
+################################################################
+
+################################################################
+# remi Repository Install
+if [ ! -f /etc/yum.repos.d/remi.repo ];
+then
+  yum -y install ${REMIREPOURI}
+fi
+
+yum -y install \
+bind-utils \
+dstat \
+gcc \
+gcc-c++ \
+git \
+lsof \
+mailx \
+nkf \
+rpm-build \
+telnet \
+unzip \
+wget \
+zip
+
+yum -y --enablerepo=epel install htop
+################################################################
+
+################################################################
+# Configure sshd
+SSHDCONFIG=/etc/ssh/sshd_config
+: ${SSHPORT:="60022"}
+cp -p ${SSHDCONFIG} ${SSHDCONFIG}.orig
+sed -i "/^#Port[[:space:]]22$/a\Port 22" ${SSHDCONFIG}
+sed -i "/^Port[[:space:]]22$/a\Port ${SSHPORT}" ${SSHDCONFIG}
+sed -i "/^#GSSAPIAuthentication no/s/#//" ${SSHDCONFIG}
+sed -i "/^GSSAPIAuthentication yes/s/yes$/no/" ${SSHDCONFIG}
+sed -i "/^GSSAPICleanupCredentials yes/s/yes$/no/" ${SSHDCONFIG}
+sed -i "s/#GSSAPIStrictAcceptorCheck yes/GSSAPIStrictAcceptorCheck no/" ${SSHDCONFIG}
+sed -i "/#GSSAPIKeyExchange no/s/#//" ${SSHDCONFIG}
+sed -i "s/#UseDNS yes/UseDNS no/" ${SSHDCONFIG}
+
+cp -p ${SSHDCONFIG} ${SSHDCONFIG}.TMP
+awk 'NR==1||prev!=$0;{prev=$0}' ${SSHDCONFIG}.TMP > ${SSHDCONFIG}
+rm -f ${SSHDCONFIG}.TMP
+################################################################
+
+################################################################
+# yum update
 yum -y update
-################################################################################
+################################################################
 
-################################################################################
-# Section2 fail2ban configure and IPTABLES Setting
+################################################################
+# postfix setting
+cp -p /etc/postfix/main.cf{,.orig}
+sed -i "s/#myhostname = virtual.domain.tld/#myhostname = virtual.domain.tld\nmyhostname = ${NEWFQDN}/" /etc/postfix/main.cf
+sed -i "s/#inet_interfaces = all/inet_interfaces = all/" /etc/postfix/main.cf
+sed -i "s/inet_interfaces = localhost/#inet_interfaces = localhost/" /etc/postfix/main.cf
+sed -i 's/#myorigin = $myhostname/myorigin = $myhostname/' /etc/postfix/main.cf
+sed -i "s/#home_mailbox = Maildir/home_mailbox = Maildir/" /etc/postfix/main.cf
 
-##--@--## fail2ban $B$N%a!<%k08@h$HAw?.85$rJQ99$9$k(B
-cp -p /etc/fail2ban/jail.conf /etc/fail2ban/jail.conf.orig
-sed -i 's/you@example.com/root@localhost/g;s/fail2ban@example.com/fail2ban@localhost/g' /etc/fail2ban/jail.conf
+if [ ${OSVER} = 6 ];
+then
+service postfix restart
+chkconfig postfix on
+fi
 
-##--@--## iptables$B@_Dj(B
-# $B=i4|2=$N$?$a0lC6(Biptables$B$rDd;_$9$k(B
+if [ ${OSVER} = 7 ];
+then
+systemctl restart postfix.service
+systemctl enable postfix.service
+fi
+################################################################
+
+
+################################################################
+# iptables setting
+if [ ${OSVER} = 6 ];
+then
+iptables -L -n -v
+echo ""
 service iptables stop
-# $B<u?.$O$9$Y$FGK4~$9$k(B
 iptables -P INPUT DROP
-# $BAw?.$O$9$Y$F5v2D$9$k(B
 iptables -P OUTPUT ACCEPT
-# $B%Q%1%C%HE>Aw$O$9$Y$FGK4~$9$k(B
 iptables -P FORWARD DROP
-# localhost$B$+$i$N%"%/%;%9$r$9$Y$F5v2D(B
 iptables -A INPUT -i lo -j ACCEPT
-# $BFbIt$+$i9T$C$?%"%/%;%9$KBP$9$k30It$+$i$NJVEz%"%/%;%9$r5v2D(B
+iptables -I INPUT -p icmp --icmp-type 0 -j ACCEPT
+iptables -I INPUT -p icmp --icmp-type 8 -j ACCEPT
 iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
-# $B30It$+$i$N(BTCP22$BHV%]!<%H(B(SSH)$B$X$N%"%/%;%9$r5v2D(B
-iptables -A INPUT -p tcp --dport 22 -j ACCEPT
-# $B30It$+$i$N(BTCP80$BHV%]!<%H(B(HTTP)$B$X$N%"%/%;%9$r5v2D(B
+iptables -A INPUT -p tcp --dport 25 -j ACCEPT
 iptables -A INPUT -p tcp --dport 80 -j ACCEPT
-# $B@_Dj$rJ]B8(B
+iptables -A INPUT -p tcp --dport ${SSHPORT} -j ACCEPT
+for SUBNETS in ${TRUSTSUBNET[@]}
+do
+iptables -A INPUT -s ${SUBNETS} -p tcp --dport 22 -j ACCEPT
+done
 service iptables save
-# iptables$B$r5/F0(B
 service iptables start
-# iptables$B$r%9%?!<%H%"%C%WEPO?$9$k(B
 chkconfig iptables on
-################################################################################
+echo ""
+iptables -L -n -v
+echo ""
+fi
 
-################################################################################
-# Section3 Package install
+if [ ${OSVER} = 7 ];
+then
+  if [ 3 = $(systemctl status firewalld.service > /dev/null ; echo $?) ];
+  then
+    systemctl start firewalld.service
+  fi
+systemctl enable firewalld.service
+firewall-cmd --zone=public --add-service http
+firewall-cmd --zone=public --add-service http --permanent
+firewall-cmd --zone=public --add-service smtp
+firewall-cmd --zone=public --add-service smtp --permanent
+firewall-cmd --zone=public --add-port=${SSHPORT}/tcp
+firewall-cmd --zone=public --add-port=${SSHPORT}/tcp --permanent
+for SUBNETS in ${TRUSTSUBNET[@]}
+do
+firewall-cmd --direct \
+--add-rule ipv4 \
+filter INPUT 1 -m conntrack --ctstate NEW -m tcp -p tcp --dport 22 -s ${SUBNETS} -j ACCEPT
+firewall-cmd --permanent --direct \
+--add-rule ipv4 \
+filter INPUT 1 -m conntrack --ctstate NEW -m tcp -p tcp --dport 22 -s ${SUBNETS} -j ACCEPT
+done
+firewall-cmd --remove-service=ssh --zone=public
+firewall-cmd --remove-service=ssh --zone=public --permanent
+fi
+################################################################
 
-# NGINX
-# $B%j%]%8%H%j$r%$%s%9%H!<%k(B
-yum -y install http://nginx.org/packages/centos/6/noarch/RPMS/nginx-release-centos-6-0.el6.ngx.noarch.rpm
-# mainline$B$K8~$-@hJQ99(B
-cp -p /etc/yum.repos.d/nginx.repo /etc/yum.repos.d/nginx.repo.orig
-sed -i 's/centos/mainline\/centos/' /etc/yum.repos.d/nginx.repo
-# install
-yum -y install nginx
+################################################################
+# MySQL Community Server 5.6 or 5.7 Install
+yum -y install http://dev.mysql.com/get/mysql-community-release-el${OSVER}-5.noarch.rpm
+: ${MYSQLVER:="5.6"}
+if [ ${MYSQLVER} = 5.7 ];
+then
+  cp -p /etc/yum.repos.d/mysql-community.repo{,.orig}
+  mv /etc/yum.repos.d/mysql-community.repo.orig /etc/yum.repos.d/BACKUP/
+  sed -i '/mysql56-community/,/gpgcheck/s/enabled=1/enabled=0/g' /etc/yum.repos.d/mysql-community.repo
+  sed -i '/mysql57-community-dmr/,/^enabled/s/0/1/' /etc/yum.repos.d/mysql-community.repo
+fi
 
-# PHP
-yum -y install http://rpms.famillecollet.com/enterprise/remi-release-6.rpm
-yum --enablerepo=remi-php56 -y install \
-php-cli php-common php-mbstring php-pdo php-xml php-mysqlnd \
-php-pecl-apcu php-xmlrpc php-opcache php-fpm
+yum -y install mysql-community-server
+################################################################
 
-# MySQL
-yum -y install mysql-server
-################################################################################
+################################################################
+# Configure MySQL
+MYCNF=/etc/my.cnf
+sed -i.orig '/^#/d;/^$/d' ${MYCNF}
+sed -i "/^\[mysqld\]$/a\query_cache_limit=1M\\n" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\query_cache_min_res_unit=1024" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\query_cache_size=0" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\query_cache_type=ON" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\user=mysql" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\binlog_direct_non_transactional_updates=Off\\n" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\binlog_stmt_cache_size=16384" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\binlog_cache_size=16384" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\binlog_format=MIXED" ${MYCNF}
+if [ ${MYSQLVER} = 5.6 ]; then
+  sed -i "/^\[mysqld\]$/a\innodb_additional_mem_pool_size=4M\\n" ${MYCNF}
+fi
+sed -i "/^\[mysqld\]$/a\innodb_autoextend_increment=1000" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\innodb_log_buffer_size=16M" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\innodb_log_file_size=64M" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\innodb_buffer_pool_size=512M" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\innodb_max_dirty_pages_pct=75" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\innodb_stats_on_metadata=Off" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\innodb_read_io_threads=4" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\innodb_write_io_threads=4" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\innodb_file_format=Barracuda" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\innodb_file_per_table=1" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\max_allowed_packet=512M\\n" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\max_connections=151" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\max_binlog_size=512M" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\#binlog_ignore_db=performance_schema\\n" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\#binlog_ignore_db=information_schema" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\#binlog_ignore_db=mysql" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\long_query_time=2\\n" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\slow_query_log_file=/var/log/mysql/slow.log" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\slow_query_log=ON" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\skip-character-set-client-handshake\\n" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\character-set-server=utf8" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\log-bin=/var/lib/mysql/binlog/mysqld-bin\\n" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\expire_logs_days=2" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\#log_output=FILE" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\server-id=${SERVERID}" ${MYCNF}
+sed -i "/^\[mysqld_safe\]$/i\\\n" ${MYCNF}
+cat << _EOL_ | tee -a ${MYCNF}
 
-################################################################################
-# Section4 MySQL Configuration
-PARAMFILE=${HOME}/.mysql/MySQLPARAM
-mkdir ${HOME}/.mysql
-chkconfig mysqld on
-service mysqld start
+[client]
+default-character-set=utf8
 
-# MySQL$B$N(Broot$B%f!<%6$H%Q%9%o!<%I$r:n@.$7!"%Q%i%a!<%?!<%U%!%$%k$K3JG<$9$k!#(B
-# $B=q<0$O(B user root 
-echo "user root $(cat /dev/urandom | tr -dc '[:alnum:]' | head -c 8)" > ${PARAMFILE}
+[mysql]
+default-character-set=utf8
 
-# WordPress$B$N(BDB$B$K4X$7$F%Q%i%a!<%?!<%U%!%$%k$K3JG<$9$k!#(B
-# $B=q<0$O(B DBPARAM DB$BL>(B DB$B%f!<%6!<L>(B 
-echo "DBPARAM ${DBNAME} ${DBUSER} $(cat /dev/urandom | tr -dc '[:alnum:]' | head -c 8)" >> ${PARAMFILE}
+[mysqldump]
+default-character-set=utf8
 
-# MySQL$B$N(Broot$B%f!<%6!<$N%Q%9%o!<%I$r@_Dj$9$k!#(B
-mysqladmin -u root password "$(grep ^user ${PARAMFILE} | awk '{print $NF}')"
-
-# WordPress$B$N%G!<%?%Y!<%9$r:n@.$9$k!#(B
-mysql -u root -p$(grep ^user ${PARAMFILE} | awk '{print $NF}') \
--e "create database ${DBNAME} character set utf8;"
-
-# DB$B%f!<%6!<(B(WordPress$B%G!<%?%Y!<%9@\B3MQ(B)$B$N%Q%9%o!<%I$rJQ?t(BPW$B$K3JG<$9$k!#(B
-PW=$(grep ^DBPARAM ${PARAMFILE} | awk '{print $NF}')
-
-# DB$B%f!<%6!<$r:n@.$9$k!#(B
-mysql -u root -p$(grep ^user ${PARAMFILE} | awk '{print $NF}') \
--e "GRANT ALL PRIVILEGES on ${DBNAME}.* to ${DBUSER}@localhost identified by \"${PW}\";"
-
-# mysql_secure_installation
-# $BF?L>%f!<%6!<$N:o=|(B
-mysql -u root -p$(grep ^user ${PARAMFILE} | awk '{print $NF}') \
--e "DELETE FROM mysql.user WHERE User='';"
-
-# localhost$B0J30$+$i$N(Broot$B%m%0%$%s6X;_(B
-mysql -u root -p$(grep ^user ${PARAMFILE} | awk '{print $NF}') \
--e "DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');"
-
-# test$B%G!<%?%Y!<%9:o=|(B
-mysql -u root -p$(grep ^user ${PARAMFILE} | awk '{print $NF}') \
--e "DROP DATABASE test;"
-
-# $B8"8B>pJs$N:FFI9~(B
-mysql -u root -p$(grep ^user ${PARAMFILE} | awk '{print $NF}') \
--e "FLUSH PRIVILEGES;"
-################################################################################
-
-################################################################################
-# Section5 PHP Configuration
-
-# php.ini Configuration
-cd /etc
-cp -p php.ini php.ini.orig
-sed -i 's/\;date.timezone\ \=/\;##--@--##date.timezone\ \=\ndate.timezone\ \=\ Asia\/Tokyo/' php.ini
-
-# PHP-FPM Configuration
-cd /etc/php-fpm.d
-cp -p www.conf www.conf.orig
-sed -i 's/^user\ \= apache/\;user\ \= apache\nuser\ \=\ nginx/' www.conf
-sed -i 's/^group\ \= apache/\;group\ \= apache\ngroup\ \=\ nginx/' www.conf
-
-service php-fpm start
-chkconfig php-fpm on
-################################################################################
-
-################################################################################
-# Section6 WordPress Install
-
-# Create DocumentRoot
-mkdir -p /var/www/${ETH0}
-
-cd ${HOME}
-mkdir bin
-cd bin
-wget https://raw.githubusercontent.com/nullpopopo/wpdl/master/bin/wpdl
-
-chmod 700 wpdl
-cd ${HOME}
-bin/wpdl
-
-cd ${HOME}/src/wordpress/current/
-tar xzf latest-ja.tar.gz
-cd wordpress/
-cp -pr * /var/www/${ETH0}
-
-cd /var/www/${ETH0}
-cp -p wp-config-sample.php wp-config.php
-chmod 660 wp-config.php
-sed -i s/database_name_here/$(grep ^DBPARAM ${PARAMFILE} | awk '{print $2}')/g wp-config.php
-sed -i s/username_here/$(grep ^DBPARAM ${PARAMFILE} | awk '{print $3}')/g wp-config.php
-sed -i s/password_here/$(grep ^DBPARAM ${PARAMFILE} | awk '{print $4}')/g wp-config.php
-sed -i s/'put your unique phrase here'/$(cat /dev/urandom | tr -dc '[:alnum:]'| head -c 32)/g wp-config.php
-
-cd /var/www/
-chown -R nginx:${USER} ${ETH0}
-chmod -R g+w ${ETH0}
-
-################################################################################
-
-################################################################################
-# Section7 NGINX Configuration
-
-# http://wpdocs.sourceforge.jp/Nginx
-cd /etc/nginx/
-cp -p nginx.conf nginx.conf.orig
-
-# worker_processes$B$N?t$r%3%"?t$K9g$o$;$k(B
-sed -i "s/worker_processes[[:space:]]\+[0-9]\+/worker_processes $(cat /proc/cpuinfo | grep processor | wc -l)/g" nginx.conf
-
-cd conf.d
-
-# Per Site Configuration
-cat << _EOL_ > 000_VHOST.conf
-server {
-    server_name ${ETH0};
-    root /var/www/${ETH0};
-
-    # This order might seem weird - this is attempted to match last if rules below fail.
-    # http://wiki.nginx.org/HttpCoreModule
-    location / {
-        try_files \$uri \$uri/ /index.php?\$args;
-        index  index.php index.html index.htm;
-    }
-
-    # Add trailing slash to */wp-admin requests.
-    rewrite /wp-admin\$ \$scheme://\$host\$uri/ permanent;
-
-    # Directives to send expires headers and turn off 404 error logging.
-    location ~* \.(js|css|png|jpg|jpeg|gif|ico)$ {
-        expires 24h;
-        log_not_found off;
-    }
-
-    # Pass all .php files onto a php-fpm/php-fcgi server.
-        location ~ \.php\$ {
-        try_files \$uri =404;
-        fastcgi_split_path_info ^(.+\.php)(/.+)\$;
-        include fastcgi_params;
-        fastcgi_index index.php;
-        fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
-        fastcgi_pass 127.0.0.1:9000;
-    }
-}
 _EOL_
 
-service nginx start
-chkconfig nginx on
-################################################################################
+mkdir -p /var/log/mysql/
+chown mysql. /var/log/mysql/
+if [ ${MYSQLVER} = 5.6 ];
+then
+  mkdir -p /var/lib/mysql/binlog/
+  chown mysql. /var/lib/mysql/binlog/
+  [ ${OSVER} = 6 ] && service mysqld start
+  [ ${OSVER} = 6 ] && chkconfig mysqld on
+  [ ${OSVER} = 7 ] && systemctl start mysqld.service
+  [ ${OSVER} = 7 ] && systemctl enable  mysqld.service
+fi
+if [ ${MYSQLVER} = 5.7 ];
+then
+  mv /etc/my.cnf{,.DISABLED}
+  cd /var/lib/mysql
+  mysqld --secure-file-priv --initialize-insecure --no-defaults --user=mysql --log-error-verbosity=3
+  mkdir -p /var/lib/mysql/binlog/
+  chown mysql. /var/lib/mysql/binlog/
+  cd
+  mv /etc/my.cnf.DISABLED /etc/my.cnf
+  [ ${OSVER} = 6 ] && service mysqld start
+  [ ${OSVER} = 6 ] && chkconfig mysqld on
+  [ ${OSVER} = 7 ] && systemctl start mysqld.service
+  [ ${OSVER} = 7 ] && systemctl enable  mysqld.service
+fi
 
-################################################################################
-# Section8 Reboot
+if [ ${MYSQLVER} = 5.6 ];
+then
+  mysql -u root -e "SET PASSWORD FOR root@localhost=PASSWORD('${MYSQLROOTPW}');"
+  echo [client] | tee ${HOME}/.my.cnf
+  echo user=root | tee -a ${HOME}/.my.cnf
+  echo password=\"${MYSQLROOTPW}\" | tee -a ${HOME}/.my.cnf
+  cp -p ${HOME}/.my.cnf /home/${ADMINUSER}/
+  mysql -e "SET PASSWORD FOR root@localhost.localdomain=PASSWORD('${MYSQLROOTPW}');"
+  mysql -e "SET PASSWORD FOR root@127.0.0.1=PASSWORD('${MYSQLROOTPW}');"
+  mysql -e "SET PASSWORD FOR root@\"::1\"=PASSWORD('${MYSQLROOTPW}');"
+  mysql -e "select user,host,password from mysql.user;"
+  mysql -e "delete from mysql.user where user='';"
+  mysql -e 'FLUSH PRIVILEGES;'
+  mysql -e "select user,host,password from mysql.user;"
+  echo ""
+fi
+if [ ${MYSQLVER} = 5.7 ];
+then
+  echo "USE mysql; SET PASSWORD FOR root@localhost=PASSWORD('${MYSQLROOTPW}');" | tee ${HOME}/MYSQLCOMMAND.txt
+  mysql < ${HOME}/MYSQLCOMMAND.txt
+  echo [client] | tee ${HOME}/.my.cnf
+  echo user=root | tee -a ${HOME}/.my.cnf
+  echo password=\"${MYSQLROOTPW}\" | tee -a ${HOME}/.my.cnf
+  cp -p ${HOME}/.my.cnf /home/${ADMINUSER}/
+fi
+################################################################
 
-reboot
-################################################################################
+################################################################
+# memcached Install
+yum -y --enablerepo=remi install memcached libmemcached-last
+mkdir -p /etc/sysconfig/BACKUP/
+cp -p /etc/sysconfig/memcached /etc/sysconfig/BACKUP/memcached.orig
+#sed -i 's/MAXCONN="1024"/MAXCONN="1024"/' /etc/sysconfig/memcached
+sed -i 's/CACHESIZE="64"/CACHESIZE="384"/' /etc/sysconfig/memcached
+[ ${OSVER} = 6 ] && service memcached start
+[ ${OSVER} = 6 ] && chkconfig memcached on
+[ ${OSVER} = 7 ] && systemctl start memcached.service
+[ ${OSVER} = 7 ] && systemctl enable memcached.service
+################################################################
+
+################################################################
+# PHP Install
+yum -y --enablerepo=remi install \
+gd-last \
+fontconfig \
+fontpackages-filesystem \
+jbigkit-libs \
+libX11 \
+libX11-common \
+libXau \
+libXpm \
+libjpeg-turbo \
+libpng \
+libtiff \
+libvpx \
+libxcb \
+libicu
+
+yum -y --enablerepo=epel --enablerepo=remi-php56 install \
+php-cli \
+php-pdo \
+php-pear \
+php-pecl-igbinary \
+php-pecl-jsonc \
+php-pecl-msgpack \
+php-process \
+php-common \
+php-fpm \
+php-gd \
+php-mbstring \
+php-mcrypt \
+php-mysqlnd \
+php-opcache \
+php-pecl-apcu \
+php-pecl-geoip \
+php-pecl-memcache \
+php-pecl-memcached \
+php-pecl-zip \
+php-xml \
+php-pecl-geoip
+
+cp -p /etc/php-fpm.d/www.conf{,.orig}
+sed -i 's/^user\ \= apache/\;user\ \= apache\nuser\ \=\ nginx/' /etc/php-fpm.d/www.conf
+sed -i 's/^group\ \= apache/\;group\ \= apache\ngroup\ \=\ nginx/' /etc/php-fpm.d/www.conf
+
+cp -p /etc/php.ini{,.orig}
+sed -i 's/\;date.timezone\ \=/\;##--@--##date.timezone\ \=\ndate.timezone\ \=\ Asia\/Tokyo/' /etc/php.ini
+################################################################
+
+################################################################
+# nginx Install
+yum -y install http://nginx.org/packages/centos/${OSVER}/noarch/RPMS/nginx-release-centos-${OSVER}-0.el${OSVER}.ngx.noarch.rpm
+cp -p /etc/yum.repos.d/nginx.repo{,.orig}
+sed -i 's/centos/mainline\/centos/' /etc/yum.repos.d/nginx.repo
+yum -y install nginx
+
+sed -i.orig "s/worker_processes[[:space:]]\+[0-9]\+/worker_processes auto/" /etc/nginx/nginx.conf
+
+chgrp nginx /var/lib/php/{session,wsdlcache}
+
+echo "mkdir -p /home/logs/${NEWFQDN} /home/vhosts/${NEWFQDN}/{src,public_html}" | sh
+chown -R nginx:root /home/vhosts
+chmod -R g+w /home/vhosts
+
+mkdir /etc/nginx/conf.d/BACKUP/
+mv /etc/nginx/conf.d/*.conf /etc/nginx/conf.d/BACKUP/
+cat << _EOL_ | tee /etc/nginx/conf.d/000_DEFAULT_${NEWFQDN}.conf
+server {
+    listen       80 default_server;
+    server_name  ${NEWFQDN};
+    access_log  /home/logs/${NEWFQDN}/access_log  main;
+    error_log  /home/logs/${NEWFQDN}/error_log;
+
+    location / {
+        root   /home/vhosts/${NEWFQDN}/public_html;
+        index  index.php index.html index.htm;
+
+        ## WordPressのパーマリンク設定をカスタム構造に ##
+        if (-f \$request_filename) {
+                expires 30d;
+        }
+        if (!-e \$request_filename) {
+                rewrite ^.+?(\$/wp-.*) \$1 last;
+                rewrite ^.+?(/.*\.php)\$ \$1 last;
+                rewrite ^ /index.php last;
+        }
+        ## ここまで ##
+    }
+
+    location ~ \.php\$ {
+        root   /home/vhosts/${NEWFQDN}/public_html;
+        fastcgi_pass   127.0.0.1:9000;
+        fastcgi_index  index.php;
+        fastcgi_param  SCRIPT_FILENAME  \$document_root/\$fastcgi_script_name;
+        client_max_body_size 256M;
+        include        fastcgi_params;
+    }
+
+    error_page  404              /404.html;
+    location = /404.html {
+        root   /usr/share/nginx/html;
+    }
+
+    error_page   500 502 503 504  /50x.html;
+    location = /50x.html {
+        root   /usr/share/nginx/html;
+    }
+}
+
+_EOL_
+################################################################
+
+################################################################
+# wp-cli Install
+curl -o ${WP} ${WPDOWNLOADURI}
+chmod 755 ${WP}
+################################################################
+
+################################################################
+# nginx logrotate setting
+mkdir -p /etc/logrotate.d/BACKUP/
+cp -p /etc/logrotate.d/nginx /etc/logrotate.d/BACKUP/nginx.orig
+cat << _EOL_ | tee /etc/logrotate.d/nginx
+/var/log/nginx/*.log /home/logs/*/access_log /home/logs/*/error_log {
+        daily
+        missingok
+        rotate 52
+        compress
+        delaycompress
+        notifempty
+        create 640 nginx root
+        sharedscripts
+        postrotate
+                [ -f /var/run/nginx.pid ] && kill -USR1 \`cat /var/run/nginx.pid\`
+        endscript
+}
+_EOL_
+################################################################
+
+################################################################
+# daemons start
+[ ${OSVER} = 6 ] && service php-fpm start
+[ ${OSVER} = 6 ] && chkconfig php-fpm on
+[ ${OSVER} = 7 ] && systemctl start php-fpm.service
+[ ${OSVER} = 7 ] && systemctl enable php-fpm.service
+
+[ ${OSVER} = 6 ] && service nginx start
+[ ${OSVER} = 6 ] && chkconfig nginx on
+[ ${OSVER} = 7 ] && systemctl start nginx.service
+[ ${OSVER} = 7 ] && systemctl enable nginx.service
+################################################################
+
+################################################################
+# WordPress DB and USER CREATE
+mysql -e "CREATE DATABASE ${DBNAME} DEFAULT CHARACTER SET utf8;"
+mysql -e "GRANT ALL PRIVILEGES ON ${DBNAME}.* TO ${DBUSER}@localhost IDENTIFIED BY \"${DBUSERPW}\";"
+mysql -e "FLUSH PRIVILEGES;"
+################################################################
+
+################################################################
+# WordPress BLOG Create
+VHDIR=/home/vhosts/${NEWFQDN}/public_html
+chown -R nginx. ${VHDIR}
+
+: ${BLOGTITLE:="ICHIGEKI"}
+: ${BLOGADMIN:="ichigeki"}
+: ${BLOGPW:="$(cat /dev/urandom | tr -dc '[:alnum:]' | head -c 8)"}
+: ${ADMINMAIL:="webmaster@${NEWDOMAIN}"}
+
+cat << _EOL_ | tee ${HOME}/BLOGPARAM
+BLOGTITLE ${BLOGTITLE}
+BLOGADMIN ${BLOGADMIN}
+BLOGPW ${BLOGPW}
+ADMINMAIL ${ADMINMAIL}
+_EOL_
+
+LATESTURI=https://wordpress.org/latest.zip
+: ${WPLOCALE:="en_US"}
+: ${WPVERSION:="$(curl -LIs ${LATESTURI} | egrep ^Content-Disposition | awk '{print $NF}' | sed -e "s/filename=wordpress-//;s/\.zip//")"}
+
+${WP} --allow-root core download \
+--locale=${WPLOCALE} \
+--version=${WPVERSION} \
+--path=${VHDIR}/
+
+${WP} --allow-root core config \
+--dbname=${DBNAME} \
+--dbuser=${DBUSER} \
+--dbpass=${DBUSERPW} \
+--path=${VHDIR}/ \
+--extra-php <<PHP
+define('FS_METHOD', 'direct');
+PHP
+
+${WP} --allow-root core install \
+--url=${NEWFQDN} \
+--title=${BLOGTITLE} \
+--admin_user=${BLOGADMIN} \
+--admin_password=${BLOGPW} \
+--admin_email=${ADMINMAIL} \
+--path=${VHDIR}/
+
+chown -R nginx:${ADMINUSER} /home/vhosts/${NEWFQDN}/
+chmod -R g+w /home/vhosts/${NEWFQDN}/
+################################################################
+
+################################################################
+# ruby development environment Install
+yum -y install \
+byacc \
+gdbm-devel \
+libffi-devel \
+libyaml \
+libyaml-devel \
+ncurses-devel \
+openssl-devel \
+readline-devel \
+tcl \
+tcl-devel \
+pcre-devel \
+zlib-devel
+
+echo '%_topdir %(echo $HOME)/rpmbuild' > ${HOME}/.rpmmacros
+mkdir -p ${HOME}/rpmbuild/{SPECS,SOURCES,BUILD,BUILDROOT,RPMS,SRPMS}
+
+mkdir -p ${HOME}/bin
+curl -o ${HOME}/bin/RUBYGETTER \
+  https://raw.githubusercontent.com/nullpopopo/RUBYGETTER/master/RUBYGETTER
+chmod -R 700 ${HOME}/bin
+RUBYGETTER
+
+cp -p $(ls ${HOME}/src/ruby*) ${HOME}/rpmbuild/SOURCES/
+
+RUBYFULLVERSION=$(ls src/ | grep ruby | sed -e "s/^ruby-//;s/.tar.gz//")
+RUBYABI=$(ls src/ | grep ruby | sed -e "s/^ruby-//;s/.tar.gz//;s/.[0-9]*$//")
+RELEASE=2
+RUBYSPECFILE=${HOME}/rpmbuild/SPECS/ruby.spec
+
+curl -o ${RUBYSPECFILE} ${RUBYSPECURI}
+
+cp -p ${RUBYSPECFILE}{,.orig}
+sed -i "/^%define rubyver/s/[0-9.]*$/${RUBYFULLVERSION}/" ${RUBYSPECFILE}
+sed -i "/^%define rubyabi/s/[0-9.]*$/${RUBYABI}/" ${RUBYSPECFILE}
+sed -i "s/db4-devel//g" ${RUBYSPECFILE}
+
+rpmbuild -bb ${RUBYSPECFILE}
+[ ${OSVER} = 6 ] && RUBYRPM=${HOME}/rpmbuild/RPMS/$(uname -m)/ruby-${RUBYFULLVERSION}-${RELEASE}.el${OSVER}.$(uname -m).rpm
+[ ${OSVER} = 7 ] && RUBYRPM=${HOME}/rpmbuild/RPMS/$(uname -m)/ruby-${RUBYFULLVERSION}-${RELEASE}.el${OSVER}.centos.$(uname -m).rpm
+
+yum -y localinstall ${RUBYRPM}
+################################################################
+
+################################################################
+# wordmove Install
+gem install wordmove
+
+wordmove init
+cp -p Movefile{,.orig}
+sed -i "s/vhost.local/${NEWFQDN}/" Movefile
+sed -i "s/\/root/\/home\/vhosts\/${NEWFQDN}\/public_html/" Movefile
+sed -i "/local:/,/staging:/s/database_name/${DBNAME}/" Movefile
+sed -i "/local:/,/staging:/s/\"user\"/\"${DBUSER}\"/" Movefile
+sed -i "/local:/,/staging:/s/\"password\"/\"${DBUSERPW}\"/" Movefile
+sed -i "/local:/,/staging:/s/127.0.0.1/localhost/" Movefile
+################################################################
+
+#
+date
+#
+
+[ ${OSVER} = 6 ] && reboot
+[ ${OSVER} = 7 ] && systemctl reboot
