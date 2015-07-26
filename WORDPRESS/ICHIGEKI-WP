@@ -47,6 +47,7 @@ REMIREPOURI=http://remi.kazukioishi.net/enterprise/remi-release-${OSVER}.rpm
 WP=/usr/local/bin/wp
 WPDOWNLOADURI=https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar
 
+RUBYGETTERURI=https://raw.githubusercontent.com/nullpopopo/RUBYGETTER/master/RUBYGETTER
 RUBYSPECURI=https://raw.githubusercontent.com/hansode/ruby-2.1.x-rpm/master/ruby21x.spec
 
 # Leave to log all the subsequent processing
@@ -640,8 +641,7 @@ echo '%_topdir %(echo $HOME)/rpmbuild' > ${HOME}/.rpmmacros
 mkdir -p ${HOME}/rpmbuild/{SPECS,SOURCES,BUILD,BUILDROOT,RPMS,SRPMS}
 
 mkdir -p ${HOME}/bin
-curl -o ${HOME}/bin/RUBYGETTER \
-  https://raw.githubusercontent.com/nullpopopo/RUBYGETTER/master/RUBYGETTER
+curl -o ${HOME}/bin/RUBYGETTER ${RUBYGETTERURI}
 chmod -R 700 ${HOME}/bin
 RUBYGETTER
 
