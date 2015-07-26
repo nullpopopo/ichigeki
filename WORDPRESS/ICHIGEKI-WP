@@ -33,7 +33,7 @@ TRUSTSUBNET=("
 ")
 
 # Store a UNIX account to a variable
-ADMINUSER=hamada
+ADMINUSER=nullpopopo
 ADMINUSERPW=$(cat /dev/urandom | tr -dc '[:alnum:]' | head -c 16)
 ADMINUSERUID=500
 ADMINUSERGID=500
