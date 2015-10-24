@@ -1,0 +1,411 @@
+#!/bin/bash
+set -eux
+LANG=C
+
+MYSQLROOTPW=$(cat /dev/urandom | tr -dc '[:alnum:]' | head -c 16)
+
+INTERFACE=$(ip a show | egrep ^[0-9] | awk '{print $2}' | sed -e "s/://g" | egrep -v ^lo | head -n 1)
+IPOCT4=$(ip a show dev ${INTERFACE} | egrep '(inet[[:space:]])' | awk '{print $2}' | awk 'BEGIN {FS="/"} {print $1}' | awk 'BEGIN {FS="."} {print $NF}')
+
+NEWHOSTNAME=${IPOCT4}
+NEWDOMAIN=example.com
+NEWFQDN=${NEWHOSTNAME}.${NEWDOMAIN}
+
+# Specify the SSH port
+SSHPORT=
+
+# Store the MySQL version to the variable
+#MYSQLVER=5.6
+MYSQLVER=5.7
+# Store the MySQL ServerID to variable
+SERVERID=${IPOCT4}
+
+# Store the trusted network to an array
+TRUSTSUBNET=()
+TRUSTSUBNET=("
+127.0.0.1/32
+192.168.0.0/24
+")
+
+# Store a UNIX account to a variable
+ADMINUSER=nullpopopo
+ADMINUSERPW=$(cat /dev/urandom | tr -dc '[:alnum:]' | head -c 16)
+ADMINUSERUID=500
+ADMINUSERGID=500
+ADMINUSERPUBKEY="ssh-rsa AAAAB3NzaC1yc..."
+
+# Store the version of the CentOS Distribution to a variable
+OSVER=$(rpm -qi centos-release | grep ^Version | awk '{print $3}')
+
+REMIREPOURI=http://remi.kazukioishi.net/enterprise/remi-release-${OSVER}.rpm
+
+# Leave to log all the subsequent processing
+LOGDIR=${HOME}/logs
+LOGFILE=${LOGDIR}/$(uname -n)_$(date +%Y%m%d%H%M%S)_$(basename ${0})_${$}.LOG
+mkdir -p ${LOGDIR}
+exec >> ${LOGFILE}
+exec 2>&1
+
+#
+date
+#
+
+################################################################
+# SELinux Disable
+if [ $(getenforce) = Enforcing -o $(getenforce) = Permissive ];
+then
+  setenforce 0
+  sed -i.orig "/^SELINUX=/s/permissive/disabled/" /etc/selinux/config
+  sed -i.orig "/^SELINUX=/s/enforcing/disabled/" /etc/selinux/config
+fi
+################################################################
+
+################################################################
+# Group ADD
+if [ ! 0 = $(grep ${ADMINUSER} /etc/group > /dev/null ; echo $?) ];
+then
+  if [ ! 0 = $(grep ${ADMINUSERGID} /etc/group > /dev/null ; echo $?) ];
+  then
+    echo "Group ADD ${ADMINUSERGID} ${ADMINUSER}"
+    groupadd -g ${ADMINUSERGID} ${ADMINUSER}
+  else
+    echo "Group ADD ${ADMINUSER}"
+    groupadd ${ADMINUSER}
+  fi
+fi
+
+# User ADD
+if [ ! 0 = $(grep ${ADMINUSER} /etc/passwd > /dev/null ; echo $?) ];
+then
+if [ ! 0 = $(grep ${ADMINUSERUID} /etc/passwd > /dev/null ; echo $?) ];
+  then
+    echo "User ADD ${ADMINUSERUID} ${ADMINUSER}"
+    useradd -u ${ADMINUSERUID} -g ${ADMINUSERGID} ${ADMINUSER}
+  else
+    echo "User ADD ${ADMINUSER}"
+    useradd ${ADMINUSER}
+  fi
+  echo ${ADMINUSER}:${ADMINUSERPW} | tee PASSWD
+  chpasswd < PASSWD
+  mkdir -p /home/${ADMINUSER}/.ssh/
+  chmod 711 /home/${ADMINUSER}/
+  chmod 700 /home/${ADMINUSER}/.ssh/
+  touch /home/${ADMINUSER}/.ssh/authorized_keys
+  chmod 600 /home/${ADMINUSER}/.ssh/authorized_keys
+cat << _EOL_ | tee /home/${ADMINUSER}/.ssh/authorized_keys
+${ADMINUSERPUBKEY}
+_EOL_
+chown -R ${ADMINUSER}. /home/${ADMINUSER}/.ssh/
+fi
+
+# PasswordFile Remove
+rm -f PASSWD
+################################################################
+
+################################################################
+# sudoers Add
+if [ 0 = $(grep ${ADMINUSER} /etc/passwd > /dev/null ; echo $?) -a ! -f /etc/sudoers.d/${ADMINUSER} ];
+then
+echo "Sudoers ADD ${ADMINUSER}"
+cat << _EOL_ | tee /etc/sudoers.d/${ADMINUSER}
+${ADMINUSER}        ALL=(ALL)       NOPASSWD: ALL
+Defaults:${ADMINUSER} !requiretty
+Defaults:${ADMINUSER} env_keep += SSH_AUTH_SOCK
+_EOL_
+fi
+################################################################
+
+################################################################
+# epel Repository Install
+if [ ! -f /etc/yum.repos.d/epel.repo ];
+then
+  yum -y install epel-release
+  mkdir /etc/yum.repos.d/BACKUP/
+  cp -p /etc/yum.repos.d/epel.repo{,.orig}
+  sed -i "s/enabled=1/enabled=0/" /etc/yum.repos.d/epel.repo
+fi
+################################################################
+
+################################################################
+# remi Repository Install
+if [ ! -f /etc/yum.repos.d/remi.repo ];
+then
+  yum -y install ${REMIREPOURI}
+fi
+################################################################
+
+################################################################
+# Useful tools Install
+yum -y install \
+bind-utils \
+dstat \
+gcc \
+gcc-c++ \
+git \
+lsof \
+mailx \
+nkf \
+rpm-build \
+telnet \
+unzip \
+wget \
+zip
+
+yum -y --enablerepo=epel install htop sshpass
+################################################################
+
+################################################################
+# Configure sshd
+SSHDCONFIG=/etc/ssh/sshd_config
+: ${SSHPORT:="60022"}
+cp -p ${SSHDCONFIG} ${SSHDCONFIG}.orig
+sed -i "/^#Port[[:space:]]22$/a\Port 22" ${SSHDCONFIG}
+sed -i "/^Port[[:space:]]22$/a\Port ${SSHPORT}" ${SSHDCONFIG}
+sed -i "/^#GSSAPIAuthentication no/s/#//" ${SSHDCONFIG}
+sed -i "/^GSSAPIAuthentication yes/s/yes$/no/" ${SSHDCONFIG}
+sed -i "/^GSSAPICleanupCredentials yes/s/yes$/no/" ${SSHDCONFIG}
+sed -i "s/#GSSAPIStrictAcceptorCheck yes/GSSAPIStrictAcceptorCheck no/" ${SSHDCONFIG}
+sed -i "/#GSSAPIKeyExchange no/s/#//" ${SSHDCONFIG}
+sed -i "s/#UseDNS yes/UseDNS no/" ${SSHDCONFIG}
+
+cp -p ${SSHDCONFIG} ${SSHDCONFIG}.TMP
+awk 'NR==1||prev!=$0;{prev=$0}' ${SSHDCONFIG}.TMP > ${SSHDCONFIG}
+rm -f ${SSHDCONFIG}.TMP
+################################################################
+
+################################################################
+# yum update
+yum -y update
+################################################################
+
+################################################################
+# postfix setting
+cp -p /etc/postfix/main.cf{,.orig}
+sed -i "s/#myhostname = virtual.domain.tld/#myhostname = virtual.domain.tld\nmyhostname = ${NEWFQDN}/" /etc/postfix/main.cf
+sed -i "s/#inet_interfaces = all/inet_interfaces = all/" /etc/postfix/main.cf
+sed -i "s/inet_interfaces = localhost/#inet_interfaces = localhost/" /etc/postfix/main.cf
+sed -i 's/#myorigin = $myhostname/myorigin = $myhostname/' /etc/postfix/main.cf
+sed -i "s/#home_mailbox = Maildir/home_mailbox = Maildir/" /etc/postfix/main.cf
+
+if [ ${OSVER} = 6 ];
+then
+service postfix restart
+chkconfig postfix on
+fi
+
+if [ ${OSVER} = 7 ];
+then
+systemctl restart postfix.service
+systemctl enable postfix.service
+fi
+################################################################
+
+
+################################################################
+# iptables setting
+if [ ${OSVER} = 6 ];
+then
+iptables -L -n -v
+service iptables stop
+iptables -P INPUT DROP
+iptables -P OUTPUT ACCEPT
+iptables -P FORWARD DROP
+iptables -A INPUT -i lo -j ACCEPT
+iptables -I INPUT -p icmp --icmp-type 0 -j ACCEPT
+iptables -I INPUT -p icmp --icmp-type 8 -j ACCEPT
+iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+iptables -A INPUT -p tcp --dport 25 -j ACCEPT
+iptables -A INPUT -p tcp --dport ${SSHPORT} -j ACCEPT
+for SUBNETS in ${TRUSTSUBNET[@]}
+do
+iptables -A INPUT -s ${SUBNETS} -p tcp --dport 22 -j ACCEPT
+iptables -A INPUT -s ${SUBNETS} -p tcp --dport 3306 -j ACCEPT
+done
+service iptables save
+service iptables start
+chkconfig iptables on
+iptables -L -n -v
+fi
+
+if [ ${OSVER} = 7 ];
+then
+  if [ 3 = $(systemctl status firewalld.service > /dev/null ; echo $?) ];
+  then
+    systemctl start firewalld.service
+  fi
+systemctl enable firewalld.service
+firewall-cmd --zone=public --add-service http
+firewall-cmd --zone=public --add-service http --permanent
+firewall-cmd --zone=public --add-service smtp
+firewall-cmd --zone=public --add-service smtp --permanent
+firewall-cmd --zone=public --add-port=${SSHPORT}/tcp
+firewall-cmd --zone=public --add-port=${SSHPORT}/tcp --permanent
+for SUBNETS in ${TRUSTSUBNET[@]}
+do
+firewall-cmd --direct \
+--add-rule ipv4 \
+filter INPUT 1 -m conntrack --ctstate NEW -m tcp -p tcp --dport 22 -s ${SUBNETS} -j ACCEPT
+firewall-cmd --permanent --direct \
+--add-rule ipv4 \
+filter INPUT 1 -m conntrack --ctstate NEW -m tcp -p tcp --dport 22 -s ${SUBNETS} -j ACCEPT
+
+firewall-cmd --direct \
+--add-rule ipv4 \
+filter INPUT 1 -m conntrack --ctstate NEW -m tcp -p tcp --dport 3306 -s ${SUBNETS} -j ACCEPT
+firewall-cmd --permanent --direct \
+--add-rule ipv4 \
+filter INPUT 1 -m conntrack --ctstate NEW -m tcp -p tcp --dport 3306 -s ${SUBNETS} -j ACCEPT
+done
+firewall-cmd --remove-service=ssh --zone=public
+firewall-cmd --remove-service=ssh --zone=public --permanent
+fi
+################################################################
+
+################################################################
+# MySQL Community Server 5.6 or 5.7 Install
+yum -y install http://dev.mysql.com/get/mysql-community-release-el${OSVER}-5.noarch.rpm
+: ${MYSQLVER:="5.7"}
+if [ ${MYSQLVER} = 5.7 ];
+then
+  cp -p /etc/yum.repos.d/mysql-community.repo{,.orig}
+  mv /etc/yum.repos.d/mysql-community.repo.orig /etc/yum.repos.d/BACKUP/
+  sed -i '/mysql56-community/,/gpgcheck/s/enabled=1/enabled=0/g' /etc/yum.repos.d/mysql-community.repo
+  sed -i '/mysql57-community-dmr/,/^enabled/s/0/1/' /etc/yum.repos.d/mysql-community.repo
+fi
+yum -y install mysql-community-server
+################################################################
+
+################################################################
+# Configure MySQL
+MYCNF=/etc/my.cnf
+sed -i.orig '/^#/d;/^$/d' ${MYCNF}
+sed -i "/^\[mysqld\]$/a\query_cache_limit=1M\\n" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\query_cache_min_res_unit=1024" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\query_cache_size=0" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\query_cache_type=ON" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\user=mysql" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\binlog_direct_non_transactional_updates=Off\\n" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\binlog_stmt_cache_size=16384" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\binlog_cache_size=16384" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\binlog_format=MIXED" ${MYCNF}
+if [ ${MYSQLVER} = 5.6 ]; then
+  sed -i "/^\[mysqld\]$/a\innodb_additional_mem_pool_size=4M\\n" ${MYCNF}
+fi
+sed -i "/^\[mysqld\]$/a\innodb_autoextend_increment=1000" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\innodb_log_buffer_size=16M" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\innodb_log_file_size=64M" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\innodb_buffer_pool_size=512M" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\innodb_max_dirty_pages_pct=75" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\innodb_stats_on_metadata=Off" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\innodb_read_io_threads=4" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\innodb_write_io_threads=4" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\innodb_file_format=Barracuda" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\innodb_file_per_table=1" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\max_allowed_packet=512M\\n" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\max_connections=151" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\max_binlog_size=512M" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\#binlog_ignore_db=performance_schema\\n" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\#binlog_ignore_db=information_schema" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\#binlog_ignore_db=mysql" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\long_query_time=2\\n" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\slow_query_log_file=/var/log/mysql/slow.log" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\slow_query_log=ON" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\skip-character-set-client-handshake\\n" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\character-set-server=utf8" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\log-bin=/var/lib/mysql/binlog/mysqld-bin\\n" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\expire_logs_days=2" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\#log_output=FILE" ${MYCNF}
+sed -i "/^\[mysqld\]$/a\server-id=${SERVERID}" ${MYCNF}
+sed -i "/^\[mysqld_safe\]$/i\\\n" ${MYCNF}
+cat << _EOL_ | tee -a ${MYCNF}
+
+[client]
+default-character-set=utf8
+
+[mysql]
+default-character-set=utf8
+
+[mysqldump]
+default-character-set=utf8
+
+_EOL_
+
+mkdir -p /var/log/mysql/
+chown mysql. /var/log/mysql/
+if [ ${MYSQLVER} = 5.6 ];
+then
+  mkdir -p /var/lib/mysql/binlog/
+  chown mysql. /var/lib/mysql/binlog/
+  [ ${OSVER} = 6 ] && service mysqld start
+  [ ${OSVER} = 6 ] && chkconfig mysqld on
+  [ ${OSVER} = 7 ] && systemctl start mysqld.service
+  [ ${OSVER} = 7 ] && systemctl enable  mysqld.service
+fi
+if [ ${MYSQLVER} = 5.7 ];
+then
+  mv /etc/my.cnf{,.DISABLED}
+  cd /var/lib/mysql
+  mysqld --secure-file-priv --initialize-insecure --no-defaults --user=mysql --log-error-verbosity=3
+  mkdir -p /var/lib/mysql/binlog/
+  chown mysql. /var/lib/mysql/binlog/
+  cd
+  mv /etc/my.cnf.DISABLED /etc/my.cnf
+  [ ${OSVER} = 6 ] && service mysqld start
+  [ ${OSVER} = 6 ] && chkconfig mysqld on
+  [ ${OSVER} = 7 ] && systemctl start mysqld.service
+  [ ${OSVER} = 7 ] && systemctl enable  mysqld.service
+fi
+
+if [ ${MYSQLVER} = 5.6 ];
+then
+  mysql -u root -e "SET PASSWORD FOR root@localhost=PASSWORD('${MYSQLROOTPW}');"
+  echo [client] | tee ${HOME}/.my.cnf
+  echo host=localhost | tee -a ${HOME}/.my.cnf
+  echo user=root | tee -a ${HOME}/.my.cnf
+  echo password=\"${MYSQLROOTPW}\" | tee -a ${HOME}/.my.cnf
+  echo [mysqladmin] | tee -a ${HOME}/.my.cnf
+  echo host=localhost | tee -a ${HOME}/.my.cnf
+  echo user=root | tee -a ${HOME}/.my.cnf
+  echo password=\"${MYSQLROOTPW}\" | tee -a ${HOME}/.my.cnf
+  echo [mysqldump] | tee -a ${HOME}/.my.cnf
+  echo host=localhost | tee -a ${HOME}/.my.cnf
+  echo user=root | tee -a ${HOME}/.my.cnf
+  echo password=\"${MYSQLROOTPW}\" | tee -a ${HOME}/.my.cnf
+  cp -p ${HOME}/.my.cnf /home/${ADMINUSER}/
+  chown ${ADMINUSER}. /home/${ADMINUSER}/.my.cnf
+  mysql -e "SET PASSWORD FOR root@localhost.localdomain=PASSWORD('${MYSQLROOTPW}');"
+  mysql -e "SET PASSWORD FOR root@127.0.0.1=PASSWORD('${MYSQLROOTPW}');"
+  mysql -e "SET PASSWORD FOR root@\"::1\"=PASSWORD('${MYSQLROOTPW}');"
+  mysql -e "select user,host,password from mysql.user;"
+  mysql -e "delete from mysql.user where user='';"
+  mysql -e 'FLUSH PRIVILEGES;'
+  mysql -e "select user,host,password from mysql.user;"
+ 
+fi
+if [ ${MYSQLVER} = 5.7 ];
+then
+  echo "USE mysql; SET PASSWORD FOR root@localhost=PASSWORD('${MYSQLROOTPW}');" | tee ${HOME}/MYSQLCOMMAND.txt
+  mysql < ${HOME}/MYSQLCOMMAND.txt
+  echo [client] | tee ${HOME}/.my.cnf
+  echo host=localhost | tee -a ${HOME}/.my.cnf
+  echo user=root | tee -a ${HOME}/.my.cnf
+  echo password=\"${MYSQLROOTPW}\" | tee -a ${HOME}/.my.cnf
+  echo [mysqladmin] | tee -a ${HOME}/.my.cnf
+  echo host=localhost | tee -a ${HOME}/.my.cnf
+  echo user=root | tee -a ${HOME}/.my.cnf
+  echo password=\"${MYSQLROOTPW}\" | tee -a ${HOME}/.my.cnf
+  echo [mysqldump] | tee -a ${HOME}/.my.cnf
+  echo host=localhost | tee -a ${HOME}/.my.cnf
+  echo user=root | tee -a ${HOME}/.my.cnf
+  echo password=\"${MYSQLROOTPW}\" | tee -a ${HOME}/.my.cnf
+  cp -p ${HOME}/.my.cnf /home/${ADMINUSER}/
+  chown ${ADMINUSER}. /home/${ADMINUSER}/.my.cnf
+fi
+################################################################
+
+#
+date
+#
+
+[ ${OSVER} = 6 ] && reboot
+[ ${OSVER} = 7 ] && systemctl reboot
