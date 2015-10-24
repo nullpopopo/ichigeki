@@ -117,11 +117,12 @@ fi
 
 ################################################################
 # epel Repository Install
+mkdir -p /etc/yum.repos.d/BACKUP/
 if [ ! -f /etc/yum.repos.d/epel.repo ];
 then
   yum -y install epel-release
-  mkdir /etc/yum.repos.d/BACKUP/
   cp -p /etc/yum.repos.d/epel.repo{,.orig}
+  mv /etc/yum.repos.d/epel.repo.orig /etc/yum.repos.d/BACKUP/
   sed -i "s/enabled=1/enabled=0/" /etc/yum.repos.d/epel.repo
 fi
 ################################################################
