@@ -1399,8 +1399,9 @@ fi
 if [ ${OSVER} = 7 -a httpd = ${WEBSERVER} ];
 then
 HTTPDCONF=/etc/${WEBSERVER}/conf/httpd.conf
+HTTPDCONFLINE=$(wc -l ${HTTPDCONF} | awk '{print $1}')
 cp -p ${HTTPDCONF} ${HTTPDCONF}.orig
-sed -i '/^DocumentRoot/s/^/#/' ${HTTPDCONF}
+sed -i '/^DocumentRoot/s/^/##--@DISABLED@--##/' ${HTTPDCONF}
 sed -i '/#AddHandler cgi-script .cgi/s/#//' ${HTTPDCONF}
 sed -i '/^[[:space:]]*ScriptAlias/s/^/##--@DISABLED@--##/' ${HTTPDCONF}
 
