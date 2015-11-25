@@ -265,6 +265,8 @@ ln -s /usr/share/zoneinfo/Japan /etc/localtime
 yum -y install ntpdate ntp
 [ ${OSVER} = 6 ] && service ntpd start
 [ ${OSVER} = 6 ] && chkconfig ntpd on
+[ ${OSVER} = 7 ] && systemctl stop chronyd.service
+[ ${OSVER} = 7 ] && systemctl disable chronyd.service
 [ ${OSVER} = 7 ] && systemctl start ntpd.service
 [ ${OSVER} = 7 ] && systemctl enable ntpd.service
 ntpq -p
