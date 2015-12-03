@@ -432,7 +432,7 @@ zip
 
 [ ${OSVER} = 6 ] && yum -y install jwhois
 [ ${OSVER} = 7 ] && yum -y install whois
-yum -y --enablerepo=epel install sshpass htop mytop
+yum -y --enablerepo=epel install sshpass htop mytop jq
 ################################################################################
 
 ################################################################################
