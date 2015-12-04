@@ -14,7 +14,7 @@ ADDUSERGID[0]=_USER0_GID_
 ADDUSERSHELL[0]=_USER0_SHELL_
 ADDUSERSUDO[0]=_USER0_SUDOFLAG_
 ADDUSERSQLADMIN[0]=_USER0_SQLFLAG_
-ADDUSERPUBKEY[0]=_USER0_PUBKEY_
+ADDUSERPUBKEY[0]="ssh-rsa AAAA..."
 
 ADDUSERNAME[1]=_USER1_
 ADDUSERPASS[1]=_USER1_PW_
@@ -24,15 +24,15 @@ ADDUSERGID[1]=_USER1_GID_
 ADDUSERSHELL[1]=_USER1_SHELL_
 ADDUSERSUDO[1]=_USER1_SUDOFLAG_
 ADDUSERSQLADMIN[1]=_USER1_SQLFLAG_
-ADDUSERPUBKEY[1]=_USER1_PUBKEY_
+ADDUSERPUBKEY[1]="ssh-rsa AAAA..."
 
 # PHP yum REPOSITORY CHOICE
 # PHP5.3 はCentOS6の標準リポジトリのみ。 (2014/08/14でEOL http://php.net/archive/2014.php#id2014-08-14-1 )
 #PHPVERSION=5.3
 #PHPVERSION=5.4
 #PHPVERSION=5.5
-PHPVERSION=5.6
-#PHPVERSION=7.0
+#PHPVERSION=5.6
+PHPVERSION=7.0
 
 # SSL証明書のディスティングイッシュネームを変数に格納する
 [ ! -z ${NEWHOSTNAME} ] && NEWFQDN=${NEWHOSTNAME}.${NEWDOMAIN} || NEWFQDN=${NEWDOMAIN}
@@ -63,14 +63,18 @@ DBUSERPW=_DBUSERPW_
 # データベースの文字コードを変数に格納する
 DBCHARSET=utf8
 
+# ネットワーク設定を上書きするかどうかを変数「FORCENWCONFIGCHANGE」に格納する(default: no)
+#FORCENWCONFIGCHANGE=${yes:-no}
+FORCENWCONFIGCHANGE=no
+
 # eth0に設定したいIPアドレスを変数に格納する
 INTERFACE=$(ip a show | egrep ^[0-9] | awk '{print $2}' | sed -e "s/://g" | egrep -v ^lo | head -n 1)
 HWADDR=$(ip a show dev ${INTERFACE} | egrep '^([[:space:]]*link)' | awk '{print $2}')
 IPADDR=_IPADDR_
 GWADDR=_GWADDR_
+SUBNET=_SUBNET_
 NETMASK=_NETMASK_
 NWADDR=_NWADDR_
-SUBNET=_SUBNET_
 NSADDR[0]=_NSADDR0_
 NSADDR[1]=_NSADDR1_
 NSADDR[2]=_NSADDR2_
@@ -94,6 +98,46 @@ MYSQLROLE=server
 [ ${MYSQLROLE} = server ] && DBHOST=localhost
 MYSQLROOTPW=_MYSQLROOTPW_
 
+# FORCENWCONFIGCHANGE 変数が「no」の場合、eth0のIPアドレスを変数「IPADDR」へ格納し、現在値を保護する
+if [ ${FORCENWCONFIGCHANGE} = no ];
+then
+  IPADDR=$(ip a show dev ${INTERFACE} | egrep '( inet )' | awk '{print $2}' | sed -e "s/\/[0-9]*//")
+  GWADDR=$(ip r | grep ^default | awk '{print $3}')
+  SUBNET=$(ip a show dev ${INTERFACE} | egrep '( inet )' | awk '{print $2}' | sed -e "s/^[0-9.]*\///")
+  [ ${SUBNET} = 8 ] && NETMASK=255.0.0.0
+  [ ${SUBNET} = 9 ] && NETMASK=255.128.0.0
+  [ ${SUBNET} = 10 ] && NETMASK=255.192.0.0
+  [ ${SUBNET} = 11 ] && NETMASK=255.224.0.0
+  [ ${SUBNET} = 12 ] && NETMASK=255.240.0.0
+  [ ${SUBNET} = 13 ] && NETMASK=255.248.0.0
+  [ ${SUBNET} = 14 ] && NETMASK=255.252.0.0
+  [ ${SUBNET} = 15 ] && NETMASK=255.254.0.0
+  [ ${SUBNET} = 16 ] && NETMASK=255.255.0.0
+  [ ${SUBNET} = 17 ] && NETMASK=255.255.128.0
+  [ ${SUBNET} = 18 ] && NETMASK=255.255.192.0
+  [ ${SUBNET} = 19 ] && NETMASK=255.255.224.0
+  [ ${SUBNET} = 20 ] && NETMASK=255.255.240.0
+  [ ${SUBNET} = 21 ] && NETMASK=255.255.248.0
+  [ ${SUBNET} = 22 ] && NETMASK=255.255.252.0
+  [ ${SUBNET} = 23 ] && NETMASK=255.255.254.0
+  [ ${SUBNET} = 24 ] && NETMASK=255.255.255.0
+  [ ${SUBNET} = 25 ] && NETMASK=255.255.255.128
+  [ ${SUBNET} = 26 ] && NETMASK=255.255.255.192
+  [ ${SUBNET} = 27 ] && NETMASK=255.255.255.224
+  [ ${SUBNET} = 28 ] && NETMASK=255.255.255.240
+  [ ${SUBNET} = 29 ] && NETMASK=255.255.255.248
+  [ ${SUBNET} = 30 ] && NETMASK=255.255.255.252
+  [ ${SUBNET} = 31 ] && NETMASK=255.255.255.254
+  [ ${SUBNET} = 32 ] && NETMASK=255.255.255.255
+  NWADDR=$(ip r | egrep ${INTERFACE} | egrep -v '^(default|169.254.0.0)' | awk '{print $1}' | sed -e "s/\/[0-9]*//")
+  if [ ! -f /etc/resolv.conf ];
+  then
+    NSADDR[0]=8.8.4.4
+    NSADDR[1]=8.8.8.8
+    for A in ${NSADDR[@]}; do echo -e "nameserver\t${A}"; done | tee /etc/resolv.conf
+  fi
+fi
+
 # Store the MySQL ServerID to variable
 SERVERID=$(echo ${IPADDR} | awk 'BEGIN {FS="."} {print $NF}')
 
@@ -105,11 +149,19 @@ else
 fi
 
 # Store the trusted network to an array
-TRUSTSUBNET=()
-TRUSTSUBNET=("
-127.0.0.1/32
-${IPADDR}/32
-")
+TRUSTSUBNET=""
+for A in 127.0.0.1/32 ${IPADDR}/32 \
+$(last -i | \
+egrep "(^$(whoami))" | \
+egrep "(still logged in)" | \
+egrep -v '(0.0.0.0|127.0.0.1|::1)' | \
+awk '{print $3}' | \
+sort | \
+uniq | \
+sed -e "s/$/\\/32/g")
+do
+TRUSTSUBNET=("${TRUSTSUBNET[@]}" ${A})
+done
 
 ################################################################################
 # Store the version of the CentOS Distribution to a variable
@@ -222,9 +274,11 @@ fi
 
 ################################################################################
 # ResolvConf Create
+##--@--##
 cp -p /etc/resolv.conf{,.orig}
 for A in ${NSADDR[@]}
 do
+  [ ! 0 = $(echo ${A} | egrep '(^_[[:alnum:]]*_)' > /dev/null ; echo $?) ] && \
   echo -e "nameserver\t\t${A}" | tee -a /etc/resolv.conf
 done
 ################################################################################
@@ -292,6 +346,7 @@ mkdir -p ${DROOTDIR}
 
 ################################################################################
 # Create OreOre SSL Certificate
+yum -y install openssl
 echo "CREATE Oreore Certificate"
 CERTDIR=/etc/${WEBSERVER}/CERTS/${NEWFQDN}/$(date +%Y)
 KEYFILE=${CERTDIR}/server.key
@@ -422,6 +477,7 @@ gcc-c++ \
 git \
 lsof \
 mailx \
+man \
 nkf \
 rpm-build \
 strace \
@@ -559,7 +615,10 @@ fi
 
 ################################################################################
 # MySQL Community Server 5.6 or 5.7 Install
+if [ ! 0 = $(yum list installed mysql-community-release > /dev/null ; echo $?) ];
+then
 yum -y install http://dev.mysql.com/get/mysql-community-release-el${OSVER}-5.noarch.rpm
+fi
 REPOFILE=/etc/yum.repos.d/mysql-community.repo
 mkdir -p /etc/yum.repos.d/BACKUP/
 : ${MYSQLVER:="5.6"}
@@ -588,6 +647,7 @@ if [ ${MYSQLROLE} = server ];
 then
   MYCNF=/etc/my.cnf
   sed -i.orig '/^#/d;/^$/d' ${MYCNF}
+  sed -i "/^\[mysqld\]$/a\explicit_defaults_for_timestamp=true\\n" ${MYCNF}
   sed -i "/^\[mysqld\]$/a\query_cache_limit=1M\\n" ${MYCNF}
   sed -i "/^\[mysqld\]$/a\query_cache_min_res_unit=1024" ${MYCNF}
   sed -i "/^\[mysqld\]$/a\query_cache_size=0" ${MYCNF}
@@ -597,9 +657,6 @@ then
   sed -i "/^\[mysqld\]$/a\binlog_stmt_cache_size=16384" ${MYCNF}
   sed -i "/^\[mysqld\]$/a\binlog_cache_size=16384" ${MYCNF}
   sed -i "/^\[mysqld\]$/a\binlog_format=MIXED" ${MYCNF}
-  if [ ${MYSQLVER} = 5.6 ]; then
-    sed -i "/^\[mysqld\]$/a\innodb_additional_mem_pool_size=4M\\n" ${MYCNF}
-  fi
   sed -i "/^\[mysqld\]$/a\innodb_autoextend_increment=1000" ${MYCNF}
   sed -i "/^\[mysqld\]$/a\innodb_log_buffer_size=16M" ${MYCNF}
   sed -i "/^\[mysqld\]$/a\innodb_log_file_size=64M" ${MYCNF}
@@ -1502,6 +1559,8 @@ _EOL_
 cd
 fi
 ################################################################################
+
+chmod 755 /var/log/${WEBSERVER}
 
 ################################################################################
 # Groups Add
