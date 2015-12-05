@@ -206,6 +206,7 @@ VHOSTCONF=/etc/${WEBSERVER}/conf.d/000_DEFAULT_${NEWFQDN}.conf
 
 ################################################################################
 # Leave to log all the subsequent processing
+export HOME=/root
 LOGDIR=${HOME}/logs
 LOGFILE=${LOGDIR}/$(uname -n)_$(date +%Y%m%d%H%M%S)_$(basename ${0})_${$}.LOG
 mkdir -p ${LOGDIR}
