@@ -135,6 +135,13 @@ then
     NSADDR[0]=8.8.4.4
     NSADDR[1]=8.8.8.8
     for A in ${NSADDR[@]}; do echo -e "nameserver\t${A}"; done | tee /etc/resolv.conf
+  else
+##--@--##
+    NSADDR=""
+    for A in $(cat /etc/resolv.conf | grep ^nameserver | awk '{print $NF}')
+    do
+    NSADDR=("${NSADDR[@]}" ${A})
+    done
   fi
 fi
 
@@ -278,8 +285,13 @@ fi
 cp -p /etc/resolv.conf{,.orig}
 for A in ${NSADDR[@]}
 do
-  [ ! 0 = $(echo ${A} | egrep '(^_[[:alnum:]]*_)' > /dev/null ; echo $?) ] && \
-  echo -e "nameserver\t\t${A}" | tee -a /etc/resolv.conf
+  if [ ! 0 = $(echo ${A} | egrep '(^_[[:alnum:]]*_)' > /dev/null ; echo $?) ];
+  then
+    if [ ! 0 = $(cat /etc/resolv.conf | egrep "(nameserver[[:space:]]*${A})" > /dev/null ; echo $?) ];
+    then
+      echo -e "nameserver\t\t${A}" | tee -a /etc/resolv.conf
+    fi
+  fi
 done
 ################################################################################
 
