@@ -136,7 +136,6 @@ then
     NSADDR[1]=8.8.8.8
     for A in ${NSADDR[@]}; do echo -e "nameserver\t${A}"; done | tee /etc/resolv.conf
   else
-##--@--##
     NSADDR=""
     for A in $(cat /etc/resolv.conf | grep ^nameserver | awk '{print $NF}')
     do
@@ -213,6 +212,8 @@ mkdir -p ${LOGDIR}
 exec >> ${LOGFILE}
 exec 2>&1
 
+sleep 10
+
 #
 date
 #
@@ -282,18 +283,20 @@ fi
 
 ################################################################################
 # ResolvConf Create
-##--@--##
-cp -p /etc/resolv.conf{,.orig}
-for A in ${NSADDR[@]}
-do
-  if [ ! 0 = $(echo ${A} | egrep '(^_[[:alnum:]]*_)' > /dev/null ; echo $?) ];
-  then
-    if [ ! 0 = $(cat /etc/resolv.conf | egrep "(nameserver[[:space:]]*${A})" > /dev/null ; echo $?) ];
+if [ ! 0 = $(cat /etc/resolv.conf | egrep ^nameserver > /dev/null ; echo $?) ];
+then
+  cp -p /etc/resolv.conf{,.orig}
+  for NSSERVERS in ${NSADDR[@]}
+  do
+    if [ ! 0 = $(echo ${NSSERVERS} | egrep '(^_[[:alnum:]]*_)' > /dev/null ; echo $?) ];
     then
-      echo -e "nameserver\t\t${A}" | tee -a /etc/resolv.conf
+      if [ ! 0 = $(cat /etc/resolv.conf | egrep "(nameserver[[:space:]]*${NSSERVERS})" > /dev/null ; echo $?) ];
+      then
+        echo -e "nameserver\t\t${NSSERVERS}" | tee -a /etc/resolv.conf
+      fi
     fi
-  fi
-done
+  done
+fi
 ################################################################################
 
 ################################################################################
@@ -386,53 +389,59 @@ echo ""
 ################################################################################
 PWFILE=${HOME}/PWFILE
 # Groups Add
-for A in ${!ADDGROUPNAME[@]}
+for GROUPS in ${!ADDGROUPNAME[@]}
 do
-  if [ ! 0 = ${#ADDUSERGID[${A}]} -a ! 0 = ${#ADDGROUPNAME[${A}]} ];
+  if [ ! 0 = ${#ADDUSERGID[${GROUPS}]} -a ! 0 = ${#ADDGROUPNAME[${GROUPS}]} ];
   then
-    groupadd -g ${ADDUSERGID[${A}]} ${ADDGROUPNAME[${A}]}
+    if [ ! 0 = $(cat /etc/group | egrep ${GROUPS} > /dev/null ; echo $?) ];
+    then
+      groupadd -g ${ADDUSERGID[${GROUPS}]} ${ADDGROUPNAME[${GROUPS}]}
+    fi
   else
     :
   fi
 done
 
 # Users Add
-for B in ${!ADDUSERNAME[@]}
+for USERS in ${!ADDUSERNAME[@]}
 do
-  if [ ! 0 = ${#ADDUSERGID[${B}]} -a ! 0 = ${#ADDUSERUID[${B}]} -a ! 0 = ${#ADDUSERSHELL[${B}]} -a ! 0 = ${#ADDUSERNAME[${B}]} ];
+  if [ ! 0 = ${#ADDUSERGID[${USERS}]} -a ! 0 = ${#ADDUSERUID[${USERS}]} -a ! 0 = ${#ADDUSERSHELL[${USERS}]} -a ! 0 = ${#ADDUSERNAME[${USERS}]} ];
   then
-    useradd -g ${ADDUSERGID[${B}]} -u ${ADDUSERUID[${B}]} -s ${ADDUSERSHELL[${B}]} ${ADDUSERNAME[${B}]}
-    if [ ! 0 = ${#ADDUSERPASS[${B}]} ];
-      then
-        echo ${ADDUSERNAME[${B}]}:${ADDUSERPASS[${B}]} | tee ${PWFILE}
-        chpasswd < ${PWFILE}
-        rm -f ${PWFILE}
-      else
-        TMPPW=$(cat /dev/urandom | tr -dc '[:alnum:]' | head -c 8 )
-        echo ${ADDUSERNAME[${B}]}:${TMPPW} | tee ${ADDUSERNAME[${B}]}_${PWFILE}
-        chpasswd < ${ADDUSERNAME[${B}]}_${PWFILE}
+    if [ ! 0 = $(cat /etc/group | egrep ${USERS} > /dev/null ; echo $?) ];
+    then
+      useradd -g ${ADDUSERGID[${USERS}]} -u ${ADDUSERUID[${USERS}]} -s ${ADDUSERSHELL[${USERS}]} ${ADDUSERNAME[${USERS}]}
+      if [ ! 0 = ${#ADDUSERPASS[${USERS}]} ];
+        then
+          echo ${ADDUSERNAME[${USERS}]}:${ADDUSERPASS[${USERS}]} | tee ${PWFILE}
+          chpasswd < ${PWFILE}
+          rm -f ${PWFILE}
+        else
+          TMPPW=$(cat /dev/urandom | tr -dc '[:alnum:]' | head -c 8 )
+          echo ${ADDUSERNAME[${USERS}]}:${TMPPW} | tee ${ADDUSERNAME[${USERS}]}_${PWFILE}
+          chpasswd < ${ADDUSERNAME[${USERS}]}_${PWFILE}
+      fi
     fi
-    if [ ! 0 = ${#ADDUSERSUDO[${B}]} -a yes = ${ADDUSERSUDO[${B}]} ];
+    if [ ! 0 = ${#ADDUSERSUDO[${USERS}]} -a yes = ${ADDUSERSUDO[${USERS}]} ];
       then
         #
-        touch /etc/sudoers.d/${ADDUSERNAME[${B}]}
+        touch /etc/sudoers.d/${ADDUSERNAME[${USERS}]}
         #
-        echo -e "${ADDUSERNAME[${B}]}\tALL=(ALL)\tNOPASSWD: ALL" | \
-        tee -a /etc/sudoers.d/${ADDUSERNAME[${B}]}
+        echo -e "${ADDUSERNAME[${USERS}]}\tALL=(ALL)\tNOPASSWD: ALL" | \
+        tee -a /etc/sudoers.d/${ADDUSERNAME[${USERS}]}
         #
-        echo -e "Defaults:${ADDUSERNAME[${B}]}\t!requiretty" | \
-        tee -a /etc/sudoers.d/${ADDUSERNAME[${B}]}
+        echo -e "Defaults:${ADDUSERNAME[${USERS}]}\t!requiretty" | \
+        tee -a /etc/sudoers.d/${ADDUSERNAME[${USERS}]}
         #
-        echo -e "Defaults:${ADDUSERNAME[${B}]}\tenv_keep += SSH_AUTH_SOCK" | \
-        tee -a /etc/sudoers.d/${ADDUSERNAME[${B}]}
+        echo -e "Defaults:${ADDUSERNAME[${USERS}]}\tenv_keep += SSH_AUTH_SOCK" | \
+        tee -a /etc/sudoers.d/${ADDUSERNAME[${USERS}]}
     fi
-    if [ ! 0 = ${#ADDUSERPUBKEY[${B}]} ];
+    if [ ! 0 = ${#ADDUSERPUBKEY[${USERS}]} ];
       then
-        SSHKEYDIR=/home/${ADDUSERNAME[${B}]}/.ssh
+        SSHKEYDIR=/home/${ADDUSERNAME[${USERS}]}/.ssh
         PUBKEYFILE=${SSHKEYDIR}/authorized_keys
         mkdir -p ${SSHKEYDIR}
-        echo ${ADDUSERPUBKEY[${B}]} | tee ${PUBKEYFILE}
-        chown -R ${ADDUSERNAME[${B}]}. ${SSHKEYDIR}
+        echo ${ADDUSERPUBKEY[${USERS}]} | tee ${PUBKEYFILE}
+        chown -R ${ADDUSERNAME[${USERS}]}. ${SSHKEYDIR}
         chmod -R go-rwx ${SSHKEYDIR}
     fi
   else
@@ -567,9 +576,9 @@ if [ ${OSVER} = 6 ];
     iptables -I INPUT -p icmp --icmp-type 0 -j ACCEPT
     iptables -I INPUT -p icmp --icmp-type 8 -j ACCEPT
     iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
-    for A in ${TRUSTSUBNET[@]}
+    for TRUSTSUBNETS in ${TRUSTSUBNET[@]}
     do
-      iptables -A INPUT -s ${A} -p tcp -m tcp --dport 22 -j ACCEPT
+      iptables -A INPUT -s ${TRUSTSUBNETS} -p tcp -m tcp --dport 22 -j ACCEPT
     done
     iptables -A INPUT -s ${NWADDR}/${SUBNET} -p tcp -m tcp --dport 4949 -j ACCEPT
     iptables -A INPUT -s ${MUNINIPADDR}/${MUNINSUBNET} -p tcp -m tcp --dport 22 -j ACCEPT
@@ -768,12 +777,12 @@ _EOL_
   # MySQL 5.6 5.7 共通処理
   cat ${HOME}/.my.cnf | grep ^[up] | sort -nr | uniq | sed -e "s/word//g;s/\"//g" | tee ${HOME}/.mytop
   echo db=mysql | tee -a ${HOME}/.mytop
-  for USERS in ${!ADDUSERNAME[@]}
+  for MYSQLUSERS in ${!ADDUSERNAME[@]}
   do
-    if [ ! 0 = ${#ADDUSERSQLADMIN[${USERS}]} -a yes = ${ADDUSERSQLADMIN[${USERS}]} ];
+    if [ ! 0 = ${#ADDUSERSQLADMIN[${MYSQLUSERS}]} -a yes = ${ADDUSERSQLADMIN[${MYSQLUSERS}]} ];
       then
-        cp -p ${HOME}/.my.cnf /home/${ADDUSERNAME[${USERS}]}/
-        cp -p ${HOME}/.mytop /home/${ADDUSERNAME[${USERS}]}/
+        cp -p ${HOME}/.my.cnf /home/${ADDUSERNAME[${MYSQLUSERS}]}/
+        cp -p ${HOME}/.mytop /home/${ADDUSERNAME[${MYSQLUSERS}]}/
       else
         :
     fi
@@ -1478,16 +1487,16 @@ sed -i '/^[[:space:]]*ScriptAlias/s/^/##--@DISABLED@--##/' ${HTTPDCONF}
 DISABLEDIR[0]=/var/www/html
 DISABLEDIR[1]=/var/www/cgi-bin
 
-for A in ${DISABLEDIR[@]}
+for DISABLEDIRS in ${DISABLEDIR[@]}
 do
-  for B in \
+  for DISABLEDIRNUM in \
   $(cat -n ${HTTPDCONF} | \
   egrep -A ${HTTPDCONFLINE} \
-  "(<Directory[[:space:]]*\"${A}\">)" | \
+  "(<Directory[[:space:]]*\"${DISABLEDIRS}\">)" | \
   egrep -m 1 -B ${HTTPDCONFLINE} "(</Directory>)" | \
   awk '{print $1}')
   do
-    sed -i "${B}s/^/##--@DISABLED@--##/" ${HTTPDCONF}
+    sed -i "${DISABLEDIRNUM}s/^/##--@DISABLED@--##/" ${HTTPDCONF}
   done
 done
 
@@ -1508,16 +1517,16 @@ ssl.conf
 userdir.conf
 welcome.conf
 ")
-for A in ${DISABLECONF}
+for DISABLECONFFILE in ${DISABLECONF}
 do
-[ -f ${A} ] && mv ${A} BACKUP/
+[ -f ${DISABLECONFFILE} ] && mv ${DISABLECONFFILE} BACKUP/
 done
 
 cd /etc/${WEBSERVER}/conf.modules.d
 mkdir -p BACKUP
-for A in $(ls | egrep -v "(BACKUP|00-base.conf|00-mpm.conf|00-ssl.conf|00-systemd.conf|01-cgi.conf|01-session.conf|1[0-9]-php*)")
+for DISABLEMODFILE in $(ls | egrep -v "(BACKUP|00-base.conf|00-mpm.conf|00-ssl.conf|00-systemd.conf|01-cgi.conf|01-session.conf|1[0-9]-php*)")
 do
-  mv ${A} BACKUP/
+  mv ${DISABLEMODFILE} BACKUP/
 done
 
 cat << _EOL_ | tee ${VHOSTCONF}
@@ -1693,9 +1702,9 @@ ln -s /usr/share/munin/plugins/mysql_ mysql_tmp_tables
 mysql -e "CREATE DATABASE munin;"
 mysql -e "GRANT ALL PRIVILEGES ON munin.* TO munin@127.0.0.1 IDENTIFIED BY \"${MUNINDBUSERPW}\";"
 
-for A in $(mysql -N -s -e "select user,host from mysql.user;" | awk '{print $1"@"$2}' | grep -v @% | sed -e "s/@172.16.%//g;s/::1/\"::1\"/g")
+for GRANTS in $(mysql -N -s -e "select user,host from mysql.user;" | awk '{print $1"@"$2}' | grep -v @% | sed -e "s/@172.16.%//g;s/::1/\"::1\"/g")
 do
-echo ${A} ; mysql -N -e "SHOW GRANTS FOR ${A}\G"; echo
+echo ${GRANTS} ; mysql -N -e "SHOW GRANTS FOR ${GRANTS}\G"; echo
 done | egrep '(^[[:alnum:]]|^$)'
 echo ""
 
