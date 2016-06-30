@@ -1,38 +1,55 @@
 #!/bin/bash
-set -eux
+##--@--##
+set -uex
 LANG=C
+LC_ALL=C
 
 NEWHOSTNAME=www
 NEWDOMAIN=example.com
 
-# 作成したいユーザー名、パスワード、グループ名、UID、GID、ログインシェル、sudo権限フラグを配列に格納する
-ADDUSERNAME[0]=_USER0_
-ADDUSERPASS[0]=_USER0_PW_
-ADDGROUPNAME[0]=_USER0_GROUP_
-ADDUSERUID[0]=_USER0_UID_
-ADDUSERGID[0]=_USER0_GID_
-ADDUSERSHELL[0]=_USER0_SHELL_
-ADDUSERSUDO[0]=_USER0_SUDOFLAG_
-ADDUSERSQLADMIN[0]=_USER0_SQLFLAG_
-ADDUSERPUBKEY[0]="ssh-rsa AAAA..."
+ADMINUSERNAME=nullpopopo
+ADMINUSERPASS=p@SsW0rD_nU1Lp0PoP0
+ADMINUSEREMAIL=nullpopopo@example.com
 
-ADDUSERNAME[1]=_USER1_
-ADDUSERPASS[1]=_USER1_PW_
-ADDGROUPNAME[1]=_USER1_GROUP_
-ADDUSERUID[1]=_USER1_UID_
-ADDUSERGID[1]=_USER1_GID_
-ADDUSERSHELL[1]=_USER1_SHELL_
-ADDUSERSUDO[1]=_USER1_SUDOFLAG_
-ADDUSERSQLADMIN[1]=_USER1_SQLFLAG_
-ADDUSERPUBKEY[1]="ssh-rsa AAAA..."
+ADMINUSERPUBKEY="ssh-rsa AAAA..."
 
-# PHP yum REPOSITORY CHOICE
-# PHP5.3 はCentOS6の標準リポジトリのみ。 (2014/08/14でEOL http://php.net/archive/2014.php#id2014-08-14-1 )
-#PHPVERSION=5.3
-#PHPVERSION=5.4
-#PHPVERSION=5.5
-#PHPVERSION=5.6
-PHPVERSION=7.0
+ADMINGROUPNAME=${ADMINUSERNAME}
+# (仕様変更) OS管理者ユーザーがバーチャルホストを管理するかどうかを設定できるようにした。
+# ADMINUSER_VHOSTMANAGE=on でバーチャルホスト設定を行う。
+ADMINUSER_VHOSTMANAGE=on
+ADMINUSER_VHOST=${NEWHOSTNAME}.${NEWDOMAIN}
+# (仕様変更) OS管理者ユーザーが管理するバーチャルホストにCMSをインストールするかどうかを設定できるようにした。
+# 対応CMS: WordPress
+ADMINUSER_VHOST_CMS_INSTALL=on
+ADMINUSER_VHOST_CMS_TOOL=wordpress
+# WordPressのタイトルを変数に格納する
+WP_SITETITLE="example WordPress"
+# WordPressの管理者名を変数に格納する
+WP_ADMINUSERNAME=${ADMINUSERNAME}
+# WordPressの管理者用パスワードを変数に格納する
+WP_ADMINPASS=${ADMINUSERPASS}
+# WordPressの管理者メールアドレスを変数に格納する
+WP_ADMINMAILADDRESS=${ADMINUSEREMAIL}
+
+# (仕様変更) MySQLパッケージをサーバーとしてインストールするかクライアントとしてインストールするかをアドレスで判別するようにした。
+# localhost 127.0.0.1 であればサーバーとしてインストールする。
+# MySQLインストールはMYSQL_INSTALL関数で行う。
+MYSQLSERVER_ADDRESS=localhost
+MYSQLROOTPW=${ADMINUSERPASS}
+DBUSERNAME=${ADMINUSERNAME}
+DBUSERPASS=${ADMINUSERPASS}
+# (仕様変更) デフォルトのDB名を空欄にした。ただし、条件によりデフォルトの動作が異なる。
+# MySQL初期設定(デフォルトの動作設定)はMYSQL_INIT関数で行う。動作仕様は(長いので)関数内にコメントした。
+MYSQLDBNAME=
+
+ADMINUSERUID=1000
+ADMINUSERGID=1000
+ADMINUSERSHELL=/bin/bash
+ADMINUSER_SUDO_ENABLE=yes
+
+# WEBサーバーをnginxかApacheから選択する
+WEBSERVER=nginx
+#WEBSERVER=httpd
 
 # SSL証明書のディスティングイッシュネームを変数に格納する
 [ ! -z ${NEWHOSTNAME} ] && NEWFQDN=${NEWHOSTNAME}.${NEWDOMAIN} || NEWFQDN=${NEWDOMAIN}
@@ -43,416 +60,222 @@ DN_O="nullpopopo"
 DN_OU="nullpopopo"
 DN_CN=${NEWFQDN}
 
-# SSH待受ポートを変数に格納する
-#SSHPORT=22
-SSHPORT=60022
-
-# Create target database list
-DBNAME=()
-DBNAME=("
-database0
-database1
-database2
-database3
-database4
-")
-# 上記データベースを管理するユーザーとパスワードを変数に格納する
-DBUSER=_DBUSERNAME_
-DBUSERPW=_DBUSERPW_
-
-# データベースの文字コードを変数に格納する
-DBCHARSET=utf8
-
-# ネットワーク設定を上書きするかどうかを変数「FORCENWCONFIGCHANGE」に格納する(default: no)
-#FORCENWCONFIGCHANGE=${yes:-no}
-FORCENWCONFIGCHANGE=no
-
-# eth0に設定したいIPアドレスを変数に格納する
-INTERFACE=$(ip a show | egrep ^[0-9] | awk '{print $2}' | sed -e "s/://g" | egrep -v ^lo | head -n 1)
-HWADDR=$(ip a show dev ${INTERFACE} | egrep '^([[:space:]]*link)' | awk '{print $2}')
-IPADDR=_IPADDR_
-GWADDR=_GWADDR_
-SUBNET=_SUBNET_
-NETMASK=_NETMASK_
-NWADDR=_NWADDR_
-NSADDR[0]=_NSADDR0_
-NSADDR[1]=_NSADDR1_
-NSADDR[2]=_NSADDR2_
-
-# 監視サーバーのネットワーク設定を変数に格納する
-MUNINIPADDR=_MUNINIPADDR_
-MUNINSUBNET=_MUNINSUBNET_
-MUNINDBUSERPW=_MUNINDBUSERPW_
-
-# WEBSERVER CHOICE
-WEBSERVER=nginx
-#WEBSERVER=httpd
-
 # Store the MySQL version to the variable
 MYSQLVER=5.6
 #MYSQLVER=5.7
 
-# MySQL Server or Client CHOICE
-#MYSQLROLE=client
-MYSQLROLE=server
-[ ${MYSQLROLE} = server ] && DBHOST=localhost
-MYSQLROOTPW=_MYSQLROOTPW_
+# データベースの文字コードを変数に格納する
+DBCHARSET=utf8
 
-# FORCENWCONFIGCHANGE 変数が「no」の場合、eth0のIPアドレスを変数「IPADDR」へ格納し、現在値を保護する
-if [ ${FORCENWCONFIGCHANGE} = no ];
+# PHPのバージョンを選定する。最終的には関数「PHPVER_SELECT」で決定される。
+# (仕様変更) PHP5系は変数の小数点以下が何だろうと切り捨てて5.6固定とする。
+# (仕様変更) PHP7系は 2016/06/24 現在、7.0と7.1が存在するため、デフォルトは7.0、オプションで7.1を選択できるようにする。
+PHPVERSION=7
+
+# バーチャルホストの基点ディレクトリを変数に格納する
+VHOSTROOTDIR=/var/www/vhosts
+
+# バーチャルホストの基点ログディレクトリを変数に格納する
+VHOSTLOGDIR=/home/logs
+
+# SSH待受ポートを変数 SSHPORT に格納する
+SSHPORT=22
+
+TRUSTSUBNET=(
+
+)
+
+TRUSTSUBNET_OVERWRITE=yes
+
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+# >>>>>>>>>>>>           ユーザーがカスタマイズしてもよい変数はここまで            <<<<<<<<<<<<
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+
+# WordPressの標準ロケールを変数に格納する
+WPLOCALE=ja
+
+# wp-cliダウンロード元を変数に格納する
+WPCLI_DOWNLOADURI="https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar"
+
+RUBYGETTERURI=https://raw.githubusercontent.com/nullpopopo/RUBYGETTER/master/RUBYGETTER
+RUBYSPECURI=https://raw.githubusercontent.com/hansode/ruby-2.1.x-rpm/master/ruby21x.spec
+
+# HHVMがLISTENするTCPポートを変数に格納する (default:9001 がバッティングするため9000へ変更するので)
+HHVM_TCPPORT=9000
+
+# PHPのタイムゾーンを変数へ格納する
+PHP_TZ_REGION=Asia
+PHP_TZ_CITY=Tokyo
+
+# 配列 TRUSTSUBNET が空だったら現在接続中のIPアドレス (/32) をTRUSTSUBNET配列に追加する
+set +eu
+if [ ${#TRUSTSUBNET[@]} = 0 ];
 then
-  IPADDR=$(ip a show dev ${INTERFACE} | egrep '( inet )' | awk '{print $2}' | sed -e "s/\/[0-9]*//")
-  GWADDR=$(ip r | grep ^default | awk '{print $3}')
-  SUBNET=$(ip a show dev ${INTERFACE} | egrep '( inet )' | awk '{print $2}' | sed -e "s/^[0-9.]*\///")
-  [ ${SUBNET} = 8 ] && NETMASK=255.0.0.0
-  [ ${SUBNET} = 9 ] && NETMASK=255.128.0.0
-  [ ${SUBNET} = 10 ] && NETMASK=255.192.0.0
-  [ ${SUBNET} = 11 ] && NETMASK=255.224.0.0
-  [ ${SUBNET} = 12 ] && NETMASK=255.240.0.0
-  [ ${SUBNET} = 13 ] && NETMASK=255.248.0.0
-  [ ${SUBNET} = 14 ] && NETMASK=255.252.0.0
-  [ ${SUBNET} = 15 ] && NETMASK=255.254.0.0
-  [ ${SUBNET} = 16 ] && NETMASK=255.255.0.0
-  [ ${SUBNET} = 17 ] && NETMASK=255.255.128.0
-  [ ${SUBNET} = 18 ] && NETMASK=255.255.192.0
-  [ ${SUBNET} = 19 ] && NETMASK=255.255.224.0
-  [ ${SUBNET} = 20 ] && NETMASK=255.255.240.0
-  [ ${SUBNET} = 21 ] && NETMASK=255.255.248.0
-  [ ${SUBNET} = 22 ] && NETMASK=255.255.252.0
-  [ ${SUBNET} = 23 ] && NETMASK=255.255.254.0
-  [ ${SUBNET} = 24 ] && NETMASK=255.255.255.0
-  [ ${SUBNET} = 25 ] && NETMASK=255.255.255.128
-  [ ${SUBNET} = 26 ] && NETMASK=255.255.255.192
-  [ ${SUBNET} = 27 ] && NETMASK=255.255.255.224
-  [ ${SUBNET} = 28 ] && NETMASK=255.255.255.240
-  [ ${SUBNET} = 29 ] && NETMASK=255.255.255.248
-  [ ${SUBNET} = 30 ] && NETMASK=255.255.255.252
-  [ ${SUBNET} = 31 ] && NETMASK=255.255.255.254
-  [ ${SUBNET} = 32 ] && NETMASK=255.255.255.255
-  NWADDR=$(ip r | egrep ${INTERFACE} | egrep -v '^(default|169.254.0.0)' | awk '{print $1}' | sed -e "s/\/[0-9]*//")
-  if [ ! -f /etc/resolv.conf ];
-  then
-    NSADDR[0]=8.8.4.4
-    NSADDR[1]=8.8.8.8
-    for A in ${NSADDR[@]}; do echo -e "nameserver\t${A}"; done | tee /etc/resolv.conf
-  else
-    NSADDR=""
-    for A in $(cat /etc/resolv.conf | grep ^nameserver | awk '{print $NF}')
-    do
-    NSADDR=("${NSADDR[@]}" ${A})
-    done
-  fi
-fi
-
-# Store the MySQL ServerID to variable
-SERVERID=$(echo ${IPADDR} | awk 'BEGIN {FS="."} {print $NF}')
-
-if [ ! -z ${NEWHOSTNAME} ];
-then
-  NEWFQDN=${NEWHOSTNAME}.${NEWDOMAIN}
-else
-  NEWFQDN=${NEWDOMAIN}
-fi
-
-# Store the trusted network to an array
-TRUSTSUBNET=""
-for A in 127.0.0.1/32 ${IPADDR}/32 \
-$(last -i | \
-egrep "(^$(whoami))" | \
-egrep "(still logged in)" | \
-egrep -v '(0.0.0.0|127.0.0.1|::1)' | \
-awk '{print $3}' | \
-sort | \
-uniq | \
-sed -e "s/$/\\/32/g")
-do
-TRUSTSUBNET=("${TRUSTSUBNET[@]}" ${A})
-done
-
-################################################################################
-# Store the version of the CentOS Distribution to a variable
-OSVER=$(rpm -qi centos-release | grep ^Version | awk '{print $3}')
-################################################################################
-
-################################################################################
-PHPPKGNAME=$(echo php${PHPVERSION} | sed -e "s/\.//g")
-ERRORMSG="選択されたPHPのバージョン ${PHPVERSION} はyumのリポジトリに存在しません。"
-MSGFILE=$(basename ${0}_ERRORLOG)
-[ ${OSVER} = 6 -a ${PHPPKGNAME} = php53 ] && PHPREPO=base
-[ ${OSVER} = 7 -a ${PHPPKGNAME} = php53 ] && echo ${ERRORMSG} | tee ${MSGFILE}
-[ ${OSVER} = 6 -a ${PHPPKGNAME} = php54 ] && PHPREPO=remi
-[ ${OSVER} = 7 -a ${PHPPKGNAME} = php54 ] && echo ${ERRORMSG} | tee ${MSGFILE}
-[ ${OSVER} = 6 -a ${PHPPKGNAME} = php55 ] && PHPREPO=remi
-[ ${OSVER} = 7 -a ${PHPPKGNAME} = php55 ] && PHPREPO=remi
-[ ${OSVER} = 6 -a ${PHPPKGNAME} = php56 ] && PHPREPO=remi
-[ ${OSVER} = 7 -a ${PHPPKGNAME} = php56 ] && PHPREPO=remi
-[ ${OSVER} = 6 -a ${PHPPKGNAME} = php70 ] && PHPREPO=remi
-[ ${OSVER} = 7 -a ${PHPPKGNAME} = php70 ] && PHPREPO=remi
-[ -f ${MSGFILE} ] && exit 1
-################################################################################
-
-################################################################################
-# http://rpms.famillecollet.com/enterprise/remi-release-6.rpm
-# http://rpms.famillecollet.com/enterprise/remi-release-7.rpm
-#REMIREPOURI=http://remi.kazukioishi.net/enterprise/remi-release-${OSVER}.rpm
-REMIREPOURI=http://rpms.famillecollet.com/enterprise/remi-release-${OSVER}.rpm
-RPMFORGEREPODIRURI=http://ftp.riken.jp/Linux/repoforge/redhat/el${OSVER}/en/$(uname -m)/rpmforge/RPMS
-RPMFORGEREPOURI=${RPMFORGEREPODIRURI}/rpmforge-release-0.5.3-1.el${OSVER}.rf.$(uname -m).rpm
-################################################################################
-
-# WEBサーバーのバーチャルホスト設定ファイルを変数に格納する
-VHOSTCONF=/etc/${WEBSERVER}/conf.d/000_DEFAULT_${NEWFQDN}.conf
-
-################################################################################
-# Leave to log all the subsequent processing
-export HOME=/root
-LOGDIR=${HOME}/logs
-LOGFILE=${LOGDIR}/$(uname -n)_$(date +%Y%m%d%H%M%S)_$(basename ${0})_${$}.LOG
-mkdir -p ${LOGDIR}
-exec >> ${LOGFILE}
-exec 2>&1
-
-sleep 10
-
-#
-date
-#
-
-################################################################################
-# Create ETH0 Interface
-BACKUPDIR=/etc/sysconfig/network-scripts/BACKUP
-INTERFACEFILE=/etc/sysconfig/network-scripts/ifcfg-${INTERFACE}
-mkdir -p ${BACKUPDIR}
-if [ -f ${INTERFACEFILE} ]; 
-then
-  cp -p ${INTERFACEFILE} ${BACKUPDIR}
-  sed -i "/^ONBOOT/s/no/yes/" ${INTERFACEFILE}
-  sed -i "/^BOOTPROTO/s/dhcp/static/" ${INTERFACEFILE}
-  if [ ! 0 = $(cat ${INTERFACEFILE} | egrep ^IPADDR > /dev/null ; echo $?) ];
-    then
-      echo "IPADDR=${IPADDR}" | tee -a ${INTERFACEFILE}
-    else
-      :
-  fi
-  if [ ! 0 = $(cat ${INTERFACEFILE} | egrep ^NETMASK > /dev/null ; echo $?) ];
-    then
-      echo "NETMASK=${NETMASK}" | tee -a ${INTERFACEFILE}
-    else
-      :
-  fi
-else
-  echo "DEVICE=${INTERFACE}" | tee ${INTERFACEFILE}
-  echo "HWADDR=${HWADDR}" | tee -a ${INTERFACEFILE}
-  echo "TYPE=Ethernet" | tee -a ${INTERFACEFILE}
-  echo "UUID=$(uuidgen ${INTERFACE})" | tee -a ${INTERFACEFILE}
-  echo "ONBOOT=yes" | tee -a ${INTERFACEFILE}
-  echo "BOOTPROTO=static" | tee -a ${INTERFACEFILE}
-  echo "IPADDR=${IPADDR}" | tee -a ${INTERFACEFILE}
-  echo "NETMASK=${NETMASK}" | tee -a ${INTERFACEFILE}
-fi
-################################################################################
-
-################################################################################
-# Default Gateway Setting
-NWCONFIG=/etc/sysconfig/network
-BACKUPDIR=/etc/sysconfig/BACKUP
-mkdir -p ${BACKUPDIR}
-cp -p ${NWCONFIG} ${BACKUPDIR}
-if [ -f ${NWCONFIG} ];
-then
-  if [ ! 0 = $(cat ${NWCONFIG} | egrep ^HOSTNAME > /dev/null ; echo $?) ];
-    then
-      echo "HOSTNAME=${NEWFQDN}" | tee -a ${NWCONFIG}
-    else
-      sed -i "/^HOSTNAME/d" ${NWCONFIG}
-      echo "HOSTNAME=${NEWFQDN}" | tee -a ${NWCONFIG}
-  fi
-  if [ ! 0 = $(cat ${NWCONFIG} | egrep ^GATEWAY > /dev/null ; echo $?) ];
-    then
-      echo "GATEWAY=${GWADDR}" | tee -a ${NWCONFIG}
-    else
-      sed -i "/^GATEWAY/d" ${NWCONFIG}
-      echo "GATEWAY=${GWADDR}" | tee -a ${NWCONFIG}
-  fi
-else
-  echo "NETWORKING=yes" | tee ${NWCONFIG}
-  echo "HOSTNAME=${NEWFQDN}" | tee -a ${NWCONFIG}
-  echo "GATEWAY=${GWADDR}" | tee -a ${NWCONFIG}
-fi
-################################################################################
-
-################################################################################
-# ResolvConf Create
-if [ ! 0 = $(cat /etc/resolv.conf | egrep ^nameserver > /dev/null ; echo $?) ];
-then
-  cp -p /etc/resolv.conf{,.orig}
-  for NSSERVERS in ${NSADDR[@]}
+  for LOGGED_IN in $(last | egrep "still[[:space:]]logged[[:space:]]in" | awk '{print $3}')
   do
-    if [ ! 0 = $(echo ${NSSERVERS} | egrep '(^_[[:alnum:]]*_)' > /dev/null ; echo $?) ];
-    then
-      if [ ! 0 = $(cat /etc/resolv.conf | egrep "(nameserver[[:space:]]*${NSSERVERS})" > /dev/null ; echo $?) ];
-      then
-        echo -e "nameserver\t\t${NSSERVERS}" | tee -a /etc/resolv.conf
-      fi
-    fi
+    TRUSTSUBNET=( "${TRUSTSUBNET[@]}" "${LOGGED_IN}/32" )
   done
 fi
-################################################################################
+set -eux
 
-################################################################################
-# Interface Restart
-ip a
-ip r
-ifdown ${INTERFACE} && ifup ${INTERFACE}
-ip a
-ip r
-################################################################################
+# WEBサーバーのバーチャルホスト設定ファイルを変数に格納する
+VCONFDIR=/etc/${WEBSERVER}/conf.d
+VHOSTCONF=${VCONFDIR}/000_DEFAULT_${NEWFQDN}.conf
 
-################################################################################
-# hostname Change (CentOS7)
-if [ ${OSVER} = 7 ];
+# 管理者ユーザーのユーザー名とパスワードを(暗号化して)記録するファイルを ADMINUSER_PWFILE 変数へ格納する
+ETC_ROOT=/root/etc
+ADMINUSER_PWFILE=${ETC_ROOT}/${ADMINUSERNAME}_PW.txt
+mkdir -p ${ETC_ROOT}
+
+# lo以外の最初のI/FのIPアドレスをIPADDR変数へ格納する
+INTERFACE=$(ip a show | egrep ^[0-9] | awk '{print $2}' | sed -e "s/://g" | egrep -v ^lo | head -n 1)
+IPADDR=$(ip a show dev ${INTERFACE} | egrep '( inet )' | awk '{print $2}' | sed -e "s/\/[0-9]*//")
+
+# プログラム名を変数に格納する
+PROGNAME=$(basename ${0})
+
+# プログラムの実行ログを変数に格納する
+LOGDIR=/root/logs
+LOGFILE=${LOGDIR}/${PROGNAME}_EVENTLOG
+mkdir -p ${LOGDIR}
+
+# remiリポジトリのURIを REMIREPOURI 変数へ格納する
+REMIREPOURI=http://rpms.famillecollet.com/enterprise/remi-release-7.rpm
+
+# rpmforgeリポジトリのURIを RPMFORGEREPOURI 変数へ格納する
+RPMFORGEREPODIRURI=http://ftp.riken.jp/Linux/repoforge/redhat/el7/en/$(uname -m)/rpmforge/RPMS
+RPMFORGEREPOURI=${RPMFORGEREPODIRURI}/rpmforge-release-0.5.3-1.el7.rf.$(uname -m).rpm
+
+# ファイル暗号化およびSSH公開鍵認証設定の処理を行う関数「ENC_PROC」に必要なパラメータを変数に格納する
+SSHDIR=/root/.ssh
+ENC_STRENGTH=4096
+SECRETKEY=${SSHDIR}/id_rsa
+PUBLICKEY=${SECRETKEY}.pub
+SEC_PEMFILE=${SECRETKEY}.pem
+PUB_PEMFILE=${SECRETKEY}.pub.pem
+SSHAUTHKEY=${SSHDIR}/authorized_keys
+
+YEAR=$(date +%Y)
+
+# 実行前チェック関数「ENV_CHECK」に環境チェックをすべてまとめる。
+ENV_CHECK() {
+  # 実行ユーザーがrootでなければ異常終了させる
+  [ ! root = $(id | awk '{print $1}' | sed -e "s/[\(\)]/ /g" | awk '{print $NF}') ] && exit 1
+
+  # root以外のユーザーがいれば異常終了させる
+  USERS_STATUS=$(cat /etc/passwd | egrep -v "/s?bin/(nologin|shutdown|sync|halt)$" | egrep -v ^root > /dev/null ; echo $?)
+  [ ! 1 = ${USERS_STATUS} ] && exit 1
+
+  # yum check-update の終了ステータスが 0 or 100 でなければ異常終了させる
+  YUMSTATUS=$(yum check-update > /dev/null ; echo $?)
+  [ 0 = ${YUMSTATUS} -o 100 = ${YUMSTATUS} ] || exit 1
+
+  # (仕様変更) LinuxディストリビューションがCentOS7でなければ異常終了させる
+  #            (/etc/os-releaseが存在せず、/etc/issue.netにCentOSが含まれていればCentOS7と判定する)
+  ISSUEFILE=/etc/issue.net
+  RELEASEFILE=/etc/os-release
+  if [ -f ${ISSUEFILE} ];
   then
-    [ -f /etc/hostname ] && cp -p /etc/hostname{,.ORIG}
-    hostnamectl set-hostname ${NEWFQDN}
-fi
-################################################################################
+    DISTNAME_DESC=$(cat /etc/issue.net | egrep ^[[:alnum:]] | egrep -v ^Kernel | awk '{print $1}')
+    # 変数DISTNAME_DESCの文字数で条件分岐する
+    if [ ! 0 = ${#DISTNAME_DESC} ];
+    then
+      # 変数DISTNAME_DESCの文字数が0でなければ、issue.netのディストリビューション名を変数に格納する
+      DISTNAME=$(cat ${ISSUEFILE} | egrep ^[[:alnum:]] | egrep -v ^Kernel | awk '{print $1}')
+    else
+      # 変数DISTNAME_DESCの文字数が0であれば、os-releaseのディストリビューション名を変数に格納する
+      DISTNAME=$(cat ${RELEASEFILE} | egrep ^NAME | awk 'BEGIN {FS="="} {print $NF}' | sed -e "s/\"//g" | awk '{print $1}')
+    fi
+  else
+    exit 1
+  fi
+  [   -f ${RELEASEFILE}  -a ! ${DISTNAME} = CentOS  ] && DIST_VERSION=OTHER
+  [ ! -f ${RELEASEFILE}  -a   ${DISTNAME} = CentOS  ] && DIST_VERSION=CentOS6
+  [   -f ${RELEASEFILE}  -a   ${DISTNAME} = CentOS  ] && DIST_VERSION=CentOS7
+  [      ${DIST_VERSION}                  = CentOS7 ] || exit 1
+}
 
-################################################################################
-# Add  eth0 IP Address at /etc/hosts
-cp -p /etc/hosts{,.orig}
-echo -e "${IPADDR}\t\t${NEWFQDN}" | tee -a /etc/hosts
-################################################################################
-
-################################################################################
-# TZ Change and ntp install
-if [ -f /etc/sysconfig/clock ];
+SELINUX_SETTING() {
+  if [ $(getenforce) = Enforcing -o $(getenforce) = Permissive ];
   then
-    cp -p /etc/sysconfig/clock{,.orig}
-    echo ZONE=\"Asia/Tokyo\" | tee /etc/sysconfig/clock
-fi
-mv /etc/localtime{,.ORIG}
-ln -s /usr/share/zoneinfo/Japan /etc/localtime
-yum -y install ntpdate ntp
-[ ${OSVER} = 6 ] && service ntpd start
-[ ${OSVER} = 6 ] && chkconfig ntpd on
-[ ${OSVER} = 7 ] && systemctl stop chronyd.service
-[ ${OSVER} = 7 ] && systemctl disable chronyd.service
-[ ${OSVER} = 7 ] && systemctl start ntpd.service
-[ ${OSVER} = 7 ] && systemctl enable ntpd.service
-ntpq -p
-################################################################################
+    SELINUX_CONFIG=/etc/selinux/config
+    cp -p ${SELINUX_CONFIG}{,.orig}
+    sed -i "/^SELINUX=/s/permissive/disabled/" ${SELINUX_CONFIG}
+    sed -i "/^SELINUX=/s/enforcing/disabled/"  ${SELINUX_CONFIG}
+  else
+    :
+  fi
+}
 
-################################################################################
-# SELinux Disable
-if [ $(getenforce) = Enforcing -o $(getenforce) = Permissive ];
+CMS_VAL_REPLACE() {
+# ADMINUSER_VHOST_CMS_TOOL 変数に代入された値が何であろうと、CMS変数にADMINUSER_VHOST_CMS_TOOLの値を代入する。
+# ここで、ADMINUSER_VHOST_CMS_TOOL 変数にスペースが含まれているかどうかを終了ステータスで判断し、スペースを_に置換すれば内部的に解決できる。
+CMS_NAME_VALIDATION=$(cat ${0} | egrep "^(ADMINUSER_VHOST_CMS_TOOL=|[[:space:]]*ADMINUSER_VHOST_CMS_TOOL=)" > /dev/null ; echo $?)
+if [ 0 = ${CMS_NAME_VALIDATION} ];
 then
-  setenforce 0
-  sed -i.orig "/^SELINUX=/s/permissive/disabled/" /etc/selinux/config
-  sed -i.orig "/^SELINUX=/s/enforcing/disabled/" /etc/selinux/config
+  CMS=$(cat ${0}                                                                  | \
+        egrep "^(ADMINUSER_VHOST_CMS_TOOL|[[:space:]]*ADMINUSER_VHOST_CMS_TOOL)=" | \
+        sed -e "s/[[:space:]]/_/g"                                                | \
+        awk 'BEGIN {FS="="} {print $NF}')
 else
-  :
+  CMS=${ADMINUSER_VHOST_CMS_TOOL}
 fi
-################################################################################
+}
 
-################################################################################
-# Create VirtualHost DocumentRoot
-DROOTDIR=/var/www/html/
-mkdir -p ${DROOTDIR}
-################################################################################
-
-################################################################################
-# Create OreOre SSL Certificate
-yum -y install openssl
-echo "CREATE Oreore Certificate"
-CERTDIR=/etc/${WEBSERVER}/CERTS/${NEWFQDN}/$(date +%Y)
-KEYFILE=${CERTDIR}/server.key
-CSRFILE=${CERTDIR}/server.csr
-CRTFILE=${CERTDIR}/server.crt
-BITS=2048
-DAYS=3650
-mkdir -p ${CERTDIR}
-openssl genrsa -out ${KEYFILE} ${BITS}
-
-[ ! 0 = ${#DN_OU} ] && \
-openssl req -new -key ${KEYFILE} -out ${CSRFILE} -subj \
-"/C=${DN_C}/ST=${DN_ST}/L=${DN_L}/O=${DN_O}/OU=${DN_OU}/CN=${DN_CN}" 
-
-[ 0 = ${#DN_OU} ] && \
-openssl req -new -key ${KEYFILE} -out ${CSRFILE} -subj \
-"/C=${DN_C}/ST=${DN_ST}/L=${DN_L}/O=${DN_O}/CN=${DN_CN}" 
-
-openssl x509 -in ${CSRFILE} -days ${DAYS} -req \
--signkey ${KEYFILE} > ${CRTFILE}
-echo "" 
-################################################################################
-
-################################################################################
-PWFILE=${HOME}/PWFILE
-# Groups Add
-for GROUPS in ${!ADDGROUPNAME[@]}
-do
-  if [ ! 0 = ${#ADDUSERGID[${GROUPS}]} -a ! 0 = ${#ADDGROUPNAME[${GROUPS}]} ];
+# ファイル暗号化およびSSH公開鍵認証設定の処理を行う処理を関数「ENC_PROC」にまとめる
+ENC_PROC() {
+  if [ ! -f ${SECRETKEY} ];
   then
-    if [ ! 0 = $(cat /etc/group | egrep ${GROUPS} > /dev/null ; echo $?) ];
-    then
-      groupadd -g ${ADDUSERGID[${GROUPS}]} ${ADDGROUPNAME[${GROUPS}]}
-    fi
+    # ${HOME}/.ssh ディレクトリ作成
+    mkdir -p ${SSHDIR}
+    chmod 700 ${SSHDIR}
+    # 秘密鍵 公開鍵のペアを作成
+    ssh-keygen                     \
+      -f ${SECRETKEY}              \
+      -b ${ENC_STRENGTH}           \
+      -t rsa                       \
+      -N ""
+    # 秘密鍵からファイル復号化用の秘密鍵を作成
+    openssl                        \
+      rsa                          \
+      -in ${SECRETKEY}             \
+      -outform pem                 \
+      -out ${SEC_PEMFILE}
+    # 秘密鍵からファイル暗号化用の公開鍵を作成
+    openssl                        \
+      rsa                          \
+      -in ${SECRETKEY}             \
+      -pubout                      \
+      -outform pem                 \
+      -out ${PUB_PEMFILE}
   else
-    :
+    if [ ! -f ${PEMFILE} ];
+    then
+      openssl                      \
+        rsa                        \
+        -in ${SECRETKEY}           \
+        -pubout                    \
+        -out ${SEC_PEMFILE}
+    fi
   fi
-done
-
-# Users Add
-for USERS in ${!ADDUSERNAME[@]}
-do
-  if [ ! 0 = ${#ADDUSERGID[${USERS}]} -a ! 0 = ${#ADDUSERUID[${USERS}]} -a ! 0 = ${#ADDUSERSHELL[${USERS}]} -a ! 0 = ${#ADDUSERNAME[${USERS}]} ];
+  # 公開鍵(id_rsa.pub)をssh公開鍵としてコピー
+  if [ ! -f ${SSHAUTHKEY} ];
   then
-    if [ ! 0 = $(cat /etc/group | egrep ${USERS} > /dev/null ; echo $?) ];
-    then
-      useradd -g ${ADDUSERGID[${USERS}]} -u ${ADDUSERUID[${USERS}]} -s ${ADDUSERSHELL[${USERS}]} ${ADDUSERNAME[${USERS}]}
-      if [ ! 0 = ${#ADDUSERPASS[${USERS}]} ];
-        then
-          echo ${ADDUSERNAME[${USERS}]}:${ADDUSERPASS[${USERS}]} | tee ${PWFILE}
-          chpasswd < ${PWFILE}
-          rm -f ${PWFILE}
-        else
-          TMPPW=$(cat /dev/urandom | tr -dc '[:alnum:]' | head -c 8 )
-          echo ${ADDUSERNAME[${USERS}]}:${TMPPW} | tee ${ADDUSERNAME[${USERS}]}_${PWFILE}
-          chpasswd < ${ADDUSERNAME[${USERS}]}_${PWFILE}
-      fi
-    fi
-    if [ ! 0 = ${#ADDUSERSUDO[${USERS}]} -a yes = ${ADDUSERSUDO[${USERS}]} ];
-      then
-        #
-        touch /etc/sudoers.d/${ADDUSERNAME[${USERS}]}
-        #
-        echo -e "${ADDUSERNAME[${USERS}]}\tALL=(ALL)\tNOPASSWD: ALL" | \
-        tee -a /etc/sudoers.d/${ADDUSERNAME[${USERS}]}
-        #
-        echo -e "Defaults:${ADDUSERNAME[${USERS}]}\t!requiretty" | \
-        tee -a /etc/sudoers.d/${ADDUSERNAME[${USERS}]}
-        #
-        echo -e "Defaults:${ADDUSERNAME[${USERS}]}\tenv_keep += SSH_AUTH_SOCK" | \
-        tee -a /etc/sudoers.d/${ADDUSERNAME[${USERS}]}
-    fi
-    if [ ! 0 = ${#ADDUSERPUBKEY[${USERS}]} ];
-      then
-        SSHKEYDIR=/home/${ADDUSERNAME[${USERS}]}/.ssh
-        PUBKEYFILE=${SSHKEYDIR}/authorized_keys
-        mkdir -p ${SSHKEYDIR}
-        echo ${ADDUSERPUBKEY[${USERS}]} | tee ${PUBKEYFILE}
-        chown -R ${ADDUSERNAME[${USERS}]}. ${SSHKEYDIR}
-        chmod -R go-rwx ${SSHKEYDIR}
-    fi
+    ssh-keygen -y                  \
+      -f ${SECRETKEY}            | \
+      tee ${SSHAUTHKEY}
   else
-    :
+    ssh-keygen -y                  \
+      -f ${SECRETKEY}            | \
+      tee -a ${SSHAUTHKEY}
   fi
-done
-################################################################################
+  chmod 600 ${SSHAUTHKEY}
+}
 
-################################################################################
-# epel Repository Install
-if [ ! -f /etc/yum.repos.d/epel.repo ];
+# 関数「YUM_REPOS_INSTALL」でepel remi rpmforgeリポジトリのインストールと初期設定(無効化)を行う
+YUM_REPOS_INSTALL() {
+  # epel Repository Install
+  if [ ! -f /etc/yum.repos.d/epel.repo ];
   then
     yum -y install epel-release
     mkdir -p /etc/yum.repos.d/BACKUP/
@@ -460,12 +283,10 @@ if [ ! -f /etc/yum.repos.d/epel.repo ];
     sed -i "s/enabled=1/enabled=0/" /etc/yum.repos.d/epel.repo
   else
     :
-fi
-################################################################################
+  fi
 
-################################################################################
-# remi Repository Install
-if [ ! -f /etc/yum.repos.d/remi.repo ];
+  # remi Repository Install
+  if [ ! -f /etc/yum.repos.d/remi.repo ];
   then
     yum -y install ${REMIREPOURI}
     mkdir -p /etc/yum.repos.d/BACKUP/
@@ -473,12 +294,10 @@ if [ ! -f /etc/yum.repos.d/remi.repo ];
     sed -i "/^enabled/s/1/0/g" /etc/yum.repos.d/remi*
   else
     :
-fi
-################################################################################
+  fi
 
-################################################################################
-# rpmforge Repository Install
-if [ ! -f /etc/yum.repos.d/rpmforge.repo ];
+  # rpmforge Repository Install
+  if [ ! -f /etc/yum.repos.d/rpmforge.repo ];
   then
     yum -y install ${RPMFORGEREPOURI}
     mkdir -p /etc/yum.repos.d/BACKUP/
@@ -486,1251 +305,1428 @@ if [ ! -f /etc/yum.repos.d/rpmforge.repo ];
     sed -i "/^enabled/s/1/0/g" /etc/yum.repos.d/rpmforge*
   else
     :
-fi
-################################################################################
+  fi
+}
 
-################################################################################
-# Useful tools Install
-yum -y install \
-bind-utils \
-dstat \
-gcc \
-gcc-c++ \
-git \
-lsof \
-mailx \
-man \
-nkf \
-rpm-build \
-strace \
-telnet \
-unzip \
-wget \
-zip
+# 関数「USEFUL_TOOLS_INSTALL」でサーバー管理用コマンドのインストールを行い、yum updateを行う。
+USEFUL_TOOLS_INSTALL() {
+  TOOLS_BASE_PACKAGES=(
+    autoconf
+    automake
+    bind-utils
+    chrony
+    dstat
+    gcc
+    gcc-c++
+    git
+    lsof
+    mailx
+    man
+    nkf
+    psmisc
+    rpm-build
+    strace
+    telnet
+    unzip
+    wget
+    whois
+    zip
+  )
 
-[ ${OSVER} = 6 ] && yum -y install jwhois
-[ ${OSVER} = 7 ] && yum -y install whois
-yum -y --enablerepo=epel install sshpass htop mytop jq
-################################################################################
+  TOOLS_EPEL_PACKAGES=(
+    sshpass
+    htop
+    mytop
+    jq
+  )
 
-################################################################################
-# Configure sshd
-SSHDCONFIG=/etc/ssh/sshd_config
-: ${SSHPORT:="10022"}
-cp -p ${SSHDCONFIG} ${SSHDCONFIG}.orig
-sed -i "/^#Port[[:space:]]22$/a\Port 22" ${SSHDCONFIG}
-sed -i "/^Port[[:space:]]22$/a\Port ${SSHPORT}" ${SSHDCONFIG}
-sed -i "/^#GSSAPIAuthentication no/s/#//" ${SSHDCONFIG}
-sed -i "/^GSSAPIAuthentication yes/s/yes$/no/" ${SSHDCONFIG}
-sed -i "/^GSSAPICleanupCredentials yes/s/yes$/no/" ${SSHDCONFIG}
-sed -i "s/#GSSAPIStrictAcceptorCheck yes/GSSAPIStrictAcceptorCheck no/" ${SSHDCONFIG}
-sed -i "/#GSSAPIKeyExchange no/s/#//" ${SSHDCONFIG}
-sed -i "s/#UseDNS yes/UseDNS no/" ${SSHDCONFIG}
+  yum -y                   install ${TOOLS_BASE_PACKAGES[@]}
+  yum -y --enablerepo=epel install ${TOOLS_EPEL_PACKAGES[@]}
+  yum -y update
 
-cp -p ${SSHDCONFIG} ${SSHDCONFIG}.TMP
-awk 'NR==1||prev!=$0;{prev=$0}' ${SSHDCONFIG}.TMP > ${SSHDCONFIG}
-rm -f ${SSHDCONFIG}.TMP
-################################################################################
-
-################################################################################
-# yum update
-yum -y update
-################################################################################
-
-################################################################################
-# postfix setting
-cp -p /etc/postfix/main.cf{,.orig}
-sed -i "s/#myhostname = virtual.domain.tld/#myhostname = virtual.domain.tld\nmyhostname = ${NEWFQDN}/" /etc/postfix/main.cf
-sed -i "s/#inet_interfaces = all/inet_interfaces = all/" /etc/postfix/main.cf
-sed -i "s/inet_interfaces = localhost/#inet_interfaces = localhost/" /etc/postfix/main.cf
-sed -i 's/#myorigin = $myhostname/myorigin = $myhostname/' /etc/postfix/main.cf
-sed -i "s/#home_mailbox = Maildir/home_mailbox = Maildir/" /etc/postfix/main.cf
-
-if [ ${OSVER} = 6 ];
+  # chronyによる時刻同期を自動で行うようにする。
+  CHRONY_YUM_INSTALLED_STATUS=$(yum list installed chrony > /dev/null ; echo $?)
+  CHRONY_STARTUP_STATUS=$(systemctl status chronyd.service > /dev/null ; echo $?)
+  if [ ${CHRONY_YUM_INSTALLED_STATUS} = 0 -a ${CHRONY_STARTUP_STATUS} = 3 ];
   then
-    service postfix restart
-    chkconfig postfix on
+    systemctl start chronyd.service
+    systemctl enable chronyd.service
+  fi
+}
+
+# 関数「ADMINUSER_CREATE」で以下の処理を行う
+#    ENC_PROC 関数実行
+#    管理者グループ作成
+#    管理者ユーザー作成
+#    管理者ユーザーにパスワードを付与(と同時にテキストファイルに出力する)
+#    管理者ユーザーの公開鍵登録
+#      仕様: もし変数「ADMINUSERPUBKEY」が空でなければ公開鍵を登録する。
+#            公開鍵ファイルをfileコマンドにかけ、OpenSSH RSA public keyであれば
+#            公開鍵ファイルのパーミッションを600にする。
+#            公開鍵ファイルがOpenSSH RSA public keyでなければ
+#            エラーログ /root/logs/ICHIGEKI_ERRORLOG に出力し、公開鍵ファイルを削除する。
+#    ADMINUSER_VHOSTMANAGE 変数が in on 0 true yes のいずれかであった場合、次の処理を行う。
+#            1) ドキュメントルートおよびシンボリックリンク作成
+#            2) ドキュメントルート、管理者ユーザーのホームディレクトリのオーナー修正
+#    ADMINUSER_VHOSTMANAGE 変数が上記に該当しない場合(空の場合も含む)、次の処理を行う。
+#            1) 管理者ユーザーのホームディレクトリのオーナー修正
+ADMINUSER_SSHDIR=/home/${ADMINUSERNAME}/.ssh
+ADMINUSER_SSHAUTHKEY=${ADMINUSER_SSHDIR}/authorized_keys
+ADMINUSER_VHOSTDIR=${VHOSTROOTDIR}/${ADMINUSER_VHOST}
+ADMINUSER_VHOSTLOGDIR=${VHOSTLOGDIR}/${ADMINUSER_VHOST}
+DROOTDIR=${ADMINUSER_VHOSTDIR}
+ERRORLOG=${ADMINUSER_VHOSTLOGDIR}/error_log
+ACCESSLOG=${ADMINUSER_VHOSTLOGDIR}/access_log
+
+ADMINUSER_CREATE() {
+  ENC_PROC
+  if [ 0 = $(echo ${ADMINUSER_VHOSTMANAGE} | egrep "^([iIoO][nN]|0|[tT][rR][uU][eE]|[yY][eE][sS])$" > /dev/null ; echo $?) ];
+  then
+    ADMINUSER_VHOSTMANAGE_STAT=TRUE
   else
-    :
-fi
+    ADMINUSER_VHOSTMANAGE_STAT=FALSE
+  fi
 
-if [ ${OSVER} = 7 ];
-  then
-    systemctl restart postfix.service
-    systemctl enable postfix.service
-  else
-    :
-fi
-################################################################################
+  #
+  groupadd                                             \
+    -g ${ADMINUSERGID}                                 \
+    ${ADMINGROUPNAME}
+  #
+  useradd                                              \
+    -g ${ADMINUSERGID}                                 \
+    -u ${ADMINUSERUID}                                 \
+    -s ${ADMINUSERSHELL}                               \
+    ${ADMINUSERNAME}
+  #
+  echo ${ADMINUSERNAME}:${ADMINUSERPASS}             | \
+    tee ${ADMINUSER_PWFILE}                          | \
+    chpasswd
 
-################################################################################
-# iptables setting
-if [ ${OSVER} = 6 ];
+  if [ -f ${ADMINUSER_PWFILE} ];
   then
-    iptables -L -n -v
-    service iptables stop
-    iptables -P INPUT DROP
-    iptables -P OUTPUT ACCEPT
-    iptables -P FORWARD DROP
-    iptables -A INPUT -i lo -j ACCEPT
-    iptables -I INPUT -p icmp --icmp-type 0 -j ACCEPT
-    iptables -I INPUT -p icmp --icmp-type 8 -j ACCEPT
-    iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
-    for TRUSTSUBNETS in ${TRUSTSUBNET[@]}
-    do
-      iptables -A INPUT -s ${TRUSTSUBNETS} -p tcp -m tcp --dport 22 -j ACCEPT
-    done
-    iptables -A INPUT -s ${NWADDR}/${SUBNET} -p tcp -m tcp --dport 4949 -j ACCEPT
-    iptables -A INPUT -s ${MUNINIPADDR}/${MUNINSUBNET} -p tcp -m tcp --dport 22 -j ACCEPT
-    iptables -A INPUT -s ${MUNINIPADDR}/${MUNINSUBNET} -p tcp -m tcp --dport 4949 -j ACCEPT
-    iptables -A INPUT -p tcp --dport ${SSHPORT} -j ACCEPT
-    iptables -A INPUT -p tcp --dport 25 -j ACCEPT
-    iptables -A INPUT -p tcp --dport 80 -j ACCEPT
-    iptables -A INPUT -p tcp --dport 443 -j ACCEPT
-    service iptables save
-    service iptables start
-    chkconfig iptables on
-    iptables -L -n -v
-  else
-    :
-fi
+    openssl                                           \
+      rsautl                                          \
+      -encrypt                                        \
+      -pubin                                          \
+      -inkey ${PUB_PEMFILE}                           \
+      -in ${ADMINUSER_PWFILE}                         \
+      -out ${ADMINUSER_PWFILE}.encrypted
+  fi
 
-if [ ${OSVER} = 7 ];
+  if [ -f ${ADMINUSER_PWFILE}.encrypted ];
   then
-    if [ 3 = $(systemctl status firewalld.service > /dev/null ; echo $?) ];
-      then
-        systemctl start firewalld.service
-      else
-        :
+    rm -f ${ADMINUSER_PWFILE}
+  fi
+
+  mkdir -p ${ADMINUSER_SSHDIR}
+
+  if [ ! 0 = ${#ADMINUSERPUBKEY} ];
+  then
+    echo ${ADMINUSERPUBKEY}                        | \
+      tee ${ADMINUSER_SSHAUTHKEY}
+    ADMINUSERPUBKEY_FILESTAT=$(
+      file ${ADMINUSER_SSHAUTHKEY}                 | \
+      awk 'BEGIN {FS=":[[:space:]]"} {print $NF}'
+    )
+    ADMINUSERPUBKEY_FILESTAT_CHECKVALUE=$(
+      echo ${ADMINUSERPUBKEY_FILESTAT}             | \
+      egrep "^(OpenSSH RSA public key)$"           > \
+      /dev/null ; echo $?
+    )
+    chmod 600 ${ADMINUSER_SSHAUTHKEY}
+    if [ ! 0 = ${ADMINUSERPUBKEY_FILESTAT_CHECKVALUE} ];
+    then
+      rm -f ${ADMINUSER_SSHAUTHKEY}
+      echo "${ADMINUSER_SSHAUTHKEY} has been deleted because it was not a OpenSSH RSA public key format." | \
+      tee -a ${ERRORLOG}
     fi
-    iptables -L -n -v
-    systemctl enable firewalld.service
-    firewall-cmd --zone=public --add-service http
-    firewall-cmd --zone=public --add-service http --permanent
-    firewall-cmd --zone=public --add-service https
-    firewall-cmd --zone=public --add-service https --permanent
-    firewall-cmd --zone=public --add-service smtp
-    firewall-cmd --zone=public --add-service smtp --permanent
-    # SSH待ち受けポートを22から変更した場合の穴開けを行う。IPアドレス制限はない。
-    [ ! 22 = ${SSHPORT} ] && \
-    firewall-cmd --zone=public --add-port=${SSHPORT}/tcp
-    [ ! 22 = ${SSHPORT} ] && \
-    firewall-cmd --zone=public --add-port=${SSHPORT}/tcp --permanent
-    # 信頼するネットワーク(配列TRUSTSUBNETに格納した値)からのみSSH接続(TCP22)を受け付ける
-    for SUBNETS in ${TRUSTSUBNET[@]}
+  else
+    :
+  fi
+
+  ADMINUSER_SUDO_ENABLE_FLAG=$(echo ${ADMINUSER_SUDO_ENABLE} | egrep -i "(yes|on|0|enable)" > /dev/null ; echo $?)
+  if [ ${ADMINUSER_SUDO_ENABLE_FLAG} = 0 ];
+  then
+    #
+    touch /etc/sudoers.d/${ADMINUSERNAME}
+    #
+    echo -e "${ADMINUSERNAME}\tALL=(ALL)\tNOPASSWD: ALL"           | \
+      tee -a /etc/sudoers.d/${ADMINUSERNAME}
+    #
+    echo -e "Defaults:${ADMINUSERNAME}\t!requiretty"               | \
+      tee -a /etc/sudoers.d/${ADMINUSERNAME}
+    #
+    echo -e "Defaults:${ADMINUSERNAME}\tenv_keep += SSH_AUTH_SOCK" | \
+      tee -a /etc/sudoers.d/${ADMINUSERNAME}
+  fi
+
+  mkdir -p ${ADMINUSER_VHOSTDIR} ${ADMINUSER_VHOSTLOGDIR}
+  mkdir -p /home/${ADMINUSERNAME}/{etc,bin}
+  mkdir -p /home/${ADMINUSERNAME}/${ADMINUSER_VHOST}/{src,BACKUP_FILES,BACKUP_SQL}
+  if [ ${ADMINUSER_VHOSTMANAGE_STAT} = TRUE ];
+  then
+    ln    -s ${ADMINUSER_VHOSTDIR}    /home/${ADMINUSERNAME}/${ADMINUSER_VHOST}/public_html
+    ln    -s ${ADMINUSER_VHOSTLOGDIR} /home/${ADMINUSERNAME}/${ADMINUSER_VHOST}/logs
+    chown -R ${ADMINUSERNAME}.        ${ADMINUSER_VHOSTDIR} /home/${ADMINUSERNAME}
+  else
+    chown -R ${ADMINUSERNAME}.        /home/${ADMINUSERNAME}
+  fi
+}
+
+# sshd初期設定処理を「INIT_SSH」関数にまとめる。
+INIT_SSH() {
+  SSHPORT_DEFAULT=22
+  if [ 0 = ${#SSHPORT} ];
+  then
+    SSHPORT=${SSHPORT_DEFAULT}
+  fi
+  SSHDCONFIG=/etc/ssh/sshd_config
+  cp -p ${SSHDCONFIG}{,.orig}
+  sed -i "/^#Port[[:space:]]22$/a\Port 22"                                ${SSHDCONFIG}
+  if [ ! 22 = ${SSHPORT} ];
+  then
+    sed -i "/^Port[[:space:]]22$/a\Port ${SSHPORT}"                       ${SSHDCONFIG}
+  fi
+  sed -i "/^#KerberosAuthentication no/s/#//"                             ${SSHDCONFIG}
+  sed -i "/^#GSSAPIAuthentication no/s/#//"                               ${SSHDCONFIG}
+  sed -i "/^GSSAPIAuthentication yes/s/yes$/no/"                          ${SSHDCONFIG}
+  sed -i "/^GSSAPICleanupCredentials yes/s/yes$/no/"                      ${SSHDCONFIG}
+  sed -i "s/#GSSAPIStrictAcceptorCheck yes/GSSAPIStrictAcceptorCheck no/" ${SSHDCONFIG}
+  sed -i "/#GSSAPIKeyExchange no/s/#//"                                   ${SSHDCONFIG}
+  sed -i "s/#UseDNS yes/UseDNS no/"                                       ${SSHDCONFIG}
+  cp -p ${SSHDCONFIG}{,.TMP}
+  awk 'NR==1||prev!=$0;{prev=$0}' ${SSHDCONFIG}.TMP                 | tee ${SSHDCONFIG}
+  rm -f ${SSHDCONFIG}.TMP
+}
+
+MYSQL_INSTALL() {
+  # MySQLのバージョン指定がない場合、デフォルトのバージョンでインストールする。
+  MYSQL_DEFAULT_VERSION=5.6
+  [ 0 = ${#MYSQLVER} ] && MYSQLVER=${MYSQL_DEFAULT_VERSION}
+  # mysql57-community-release を /root/src/mysql へダウンロードする
+  MYSQL_SRCDIR=/root/src/mysql
+  mkdir -p ${MYSQL_SRCDIR}
+  # MySQLダウンロードサイトのサーバー名を MYSQL_REPOSERVER 変数へ格納する
+  MYSQL_REPOSERVER=https://dev.mysql.com
+  MYSQL_REPOBASEDIR=${MYSQL_REPOSERVER}/downloads/repo/yum/
+  # MySQL :: Begin Your Download - mysql57-community-release-el7-8.noarch.rpm のページを MYSQL_REPO_RPM_FILEDIR 変数へ格納する
+  MYSQL_REPO_RPM_FILEDIR=${MYSQL_REPOSERVER}/$(curl -s ${MYSQL_REPOBASEDIR} | egrep /downloads/file/ | head -n 1 | sed -e "s/\"/ /g" | awk '{print $6}' | cut -b 2-)
+  # https://dev.mysql.com/get/mysql57-community-release-el7-8.noarch.rpm を MYSQL_REPO_RPM_FILEURI 変数へ格納する
+  MYSQL_REPO_RPM_FILEURI=${MYSQL_REPOSERVER}/$(curl -s ${MYSQL_REPO_RPM_FILEDIR} | egrep href | egrep rpm | sed -e "s/\"/ /g" | awk '{print $4}' | cut -b 2-)
+  # ダウンロード先ファイル名をフルパスで MYSQL_REPO_RPM_FILE 変数へ格納する
+  MYSQL_REPO_RPM_FILE=${MYSQL_SRCDIR}/$(basename ${MYSQL_REPO_RPM_FILEURI})
+  curl -o ${MYSQL_REPO_RPM_FILE} -Ls ${MYSQL_REPO_RPM_FILEURI}
+  MYSQL_REPO_RPM_FILE_RPMCOMMANDSTAT=$(file ${MYSQL_REPO_RPM_FILE} | egrep "(RPM v[0-9.]* bin i386/x86_64)" > /dev/null ; echo $?)
+  if [ -f ${MYSQL_REPO_RPM_FILE} -a 0 = ${MYSQL_REPO_RPM_FILE_RPMCOMMANDSTAT} ];
+  then
+    yum -y localinstall ${MYSQL_REPO_RPM_FILE}
+  else
+    echo "${MYSQL_REPO_RPM_FILE} が存在しないかRPM形式ではありません"
+  exit 1
+  fi
+  # mysql57-community-release-el7-8.noarch.rpm に含まれるリポジトリファイルを編集する
+  # (仕様) rpm -ql コマンドの結果に含まれるrepoファイルをforで回し、
+  #        バックアップを取得した上で enabled で始まる行をすべて 0 に置換する
+  mkdir -p /etc/yum.repos.d/BACKUP
+  for REPOFILES in $(rpm -ql $(basename ${MYSQL_REPO_RPM_FILE} | sed -e "s/\.rpm//") | egrep repo$ )
+  do
+    cp -p ${REPOFILES} /etc/yum.repos.d/BACKUP/
+    sed -i "/^enabled/s/1/0/g" ${REPOFILES}
+  done
+  # MySQLのバージョンに応じてenablerepoするため、リポジトリ名を MYSQLREPONAME 変数へ格納する
+  if [ 5.6 = ${MYSQLVER} -o 5.7 = ${MYSQLVER} ];
+  then
+    MYSQLREPOFILE=/etc/yum.repos.d/mysql-community.repo
+    MYSQLREPONAME=$(
+                    cat ${MYSQLREPOFILE}                         | \
+                    egrep '(^\[)'                                | \
+                    egrep $(echo ${MYSQLVER} | sed -e "s/\.//g") | \
+                    sed -e "s/\[//;s/\]//"
+                   )
+  else
+    :
+  fi
+  ################################################################################################################################
+  # MYSQLSERVER_ADDRESS 変数が、 ipコマンドの出力結果かhostsエントリーに含まれていれば
+  # mysql-community-server を、含まれていなければ mysql-community-client をインストールするため、
+  # MYSQLSERVER_ADDRESS 変数 をgrepした結果の終了ステータスを MYSQLSERVER_ADDRESS_DETERM 変数へ格納する
+  MYSQLSERVER_ADDRESS_DETERM=$(
+    for NODE_LIST in $(for NODE_LIST_TMP in $(echo $(for IF in $(ip a | egrep ^[0-9] | awk '{print $2}' | sed -e "s/://")
     do
-    firewall-cmd --direct \
-    --add-rule ipv4 \
-    filter INPUT 1 -m conntrack --ctstate NEW -m tcp -p tcp --dport 22 -s ${SUBNETS} -j ACCEPT
-    firewall-cmd --permanent --direct \
-    --add-rule ipv4 \
-    filter INPUT 1 -m conntrack --ctstate NEW -m tcp -p tcp --dport 22 -s ${SUBNETS} -j ACCEPT
-    done
-    # munin監視サーバーに設定したホストからのみTCP4949への接続を受け付ける
-    firewall-cmd --direct --add-rule ipv4 filter INPUT 1 -m conntrack --ctstate NEW \
-    -m tcp -p tcp --dport 4949 -s ${MUNINIPADDR}/${MUNINSUBNET} -j ACCEPT
-    firewall-cmd --permanent --direct --add-rule ipv4 filter INPUT 1 -m conntrack --ctstate NEW \
-    -m tcp -p tcp --dport 4949 -s ${MUNINIPADDR}/${MUNINSUBNET} -j ACCEPT
-    iptables -L -n -v
-fi
-################################################################################
+    ip a show dev ${IF} | egrep '^[[:space:]]*inet[[:space:]]' | awk '{print $2}' | sed -e "s/\/[0-9]*$//" ; \
+    done) \
+    $(cat /etc/hosts | sed -e "s/[[:space:]]/\n/g"))
+    do
+      echo ${NODE_LIST_TMP}
+    done | sort | uniq); \
+    do
+      echo ${NODE_LIST}
+    done | egrep ${MYSQLSERVER_ADDRESS} > /dev/null ; echo $?
+  )
+  ################################################################################################################################
+  # MYSQLSERVER_ADDRESS_DETERM が0(ipコマンドの結果かhostsエントリーにmysqlサーバーのアドレスが含まれている)であれば
+  # mysql-community-serverを、そうでなければmysql-community-clientをインストールする。
+  if [ 0 = ${MYSQLSERVER_ADDRESS_DETERM} ];
+  then
+    yum --enablerepo=${MYSQLREPONAME} -y install mysql-community-server mysql-community-devel
+  else
+    yum --enablerepo=${MYSQLREPONAME} -y install mysql-community-client mysql-community-devel
+  fi
+}
 
-################################################################################
-# MySQL Community Server 5.6 or 5.7 Install
-if [ ! 0 = $(yum list installed mysql-community-release > /dev/null ; echo $?) ];
+MYSQL_INIT() {
+# ここで内部的に CMS_VAL_REPLACE 関数を実行する
+CMS_VAL_REPLACE
+
+# mysql-community-server がインストールされているかどうかを MYSQL_SERVER_INSTALL_STAT 変数へ格納する
+MYSQL_SERVER_INSTALL_STAT=$(yum list installed | egrep mysql-community-server > /dev/null ; echo $?)
+
+# MYSQL_SERVER_INSTALL_STAT 変数が0であれば SERVERID 変数にIPアドレスの第4オクテットの数字を格納する
+if [ ${MYSQL_SERVER_INSTALL_STAT} = 0 ];
 then
-yum -y install http://dev.mysql.com/get/mysql-community-release-el${OSVER}-5.noarch.rpm
+  SERVERID=$(echo ${IPADDR} | awk 'BEGIN {FS="."} {print $NF}')
 fi
-REPOFILE=/etc/yum.repos.d/mysql-community.repo
-mkdir -p /etc/yum.repos.d/BACKUP/
-: ${MYSQLVER:="5.6"}
-if [ ${MYSQLVER} = 5.7 ];
-  then
-    cp -p ${REPOFILE}{,.orig}
-    mv ${REPOFILE}.orig /etc/yum.repos.d/BACKUP/
-    sed -i '/mysql56-community/,/gpgcheck/s/enabled=1/enabled=0/g' ${REPOFILE}
-    sed -i '/mysql57-community-dmr/,/^enabled/s/0/1/' ${REPOFILE}
-  else
-    :
-fi
-if [ ${MYSQLROLE} = server ];
-  then
-    yum -y install mysql-community-server
-  elif [ ${MYSQLROLE} = client ]; then
-    yum -y install mysql-community-client
-  else
-    :
-fi
-################################################################################
 
-################################################################################
-# Configure MySQL
-if [ ${MYSQLROLE} = server ];
+# MYSQL_SERVER_INSTALL_STAT 変数が0であれば my.cnfの設定を行う
+if [ ${MYSQL_SERVER_INSTALL_STAT} = 0 ];
 then
   MYCNF=/etc/my.cnf
-  sed -i.orig '/^#/d;/^$/d' ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\explicit_defaults_for_timestamp=true\\n" ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\query_cache_limit=1M\\n" ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\query_cache_min_res_unit=1024" ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\query_cache_size=0" ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\query_cache_type=ON" ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\user=mysql" ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\binlog_direct_non_transactional_updates=Off\\n" ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\binlog_stmt_cache_size=16384" ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\binlog_cache_size=16384" ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\binlog_format=MIXED" ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\innodb_autoextend_increment=1000" ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\innodb_log_buffer_size=16M" ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\innodb_log_file_size=64M" ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\innodb_buffer_pool_size=128M" ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\innodb_max_dirty_pages_pct=75" ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\innodb_stats_on_metadata=Off" ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\innodb_read_io_threads=4" ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\innodb_write_io_threads=4" ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\innodb_file_format=Barracuda" ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\innodb_file_per_table=1" ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\max_allowed_packet=512M\\n" ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\max_connections=151" ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\max_binlog_size=64M" ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\#binlog_ignore_db=performance_schema\\n" ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\#binlog_ignore_db=information_schema" ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\#binlog_ignore_db=mysql" ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\long_query_time=2\\n" ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\slow_query_log_file=/var/log/mysql/slow.log" ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\slow_query_log=ON" ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\skip-character-set-client-handshake\\n" ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\character-set-server=${DBCHARSET}" ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\log-bin=/var/lib/mysql/binlog/mysqld-bin\\n" ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\expire_logs_days=2" ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\#log_output=FILE" ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\server-id=${SERVERID}" ${MYCNF}
-  sed -i "/^\[mysqld_safe\]$/i\\\n" ${MYCNF}
-cat << _EOL_ | tee -a ${MYCNF}
+  sed -i.orig '/^#/d;/^$/d'                                                  ${MYCNF}
+  sed -i "/^\[mysqld\]$/a\explicit_defaults_for_timestamp=true\\n"           ${MYCNF}
+  sed -i "/^\[mysqld\]$/a\query_cache_limit=1M\\n"                           ${MYCNF}
+  sed -i "/^\[mysqld\]$/a\query_cache_min_res_unit=1024"                     ${MYCNF}
+  sed -i "/^\[mysqld\]$/a\query_cache_size=0"                                ${MYCNF}
+  sed -i "/^\[mysqld\]$/a\query_cache_type=ON"                               ${MYCNF}
+  sed -i "/^\[mysqld\]$/a\user=mysql"                                        ${MYCNF}
+  sed -i "/^\[mysqld\]$/a\binlog_direct_non_transactional_updates=Off\\n"    ${MYCNF}
+  sed -i "/^\[mysqld\]$/a\binlog_stmt_cache_size=16384"                      ${MYCNF}
+  sed -i "/^\[mysqld\]$/a\binlog_cache_size=16384"                           ${MYCNF}
+  sed -i "/^\[mysqld\]$/a\binlog_format=MIXED"                               ${MYCNF}
+  sed -i "/^\[mysqld\]$/a\innodb_autoextend_increment=1000"                  ${MYCNF}
+  sed -i "/^\[mysqld\]$/a\innodb_log_buffer_size=16M"                        ${MYCNF}
+  sed -i "/^\[mysqld\]$/a\innodb_log_file_size=64M"                          ${MYCNF}
+  sed -i "/^\[mysqld\]$/a\innodb_buffer_pool_size=128M"                      ${MYCNF}
+  sed -i "/^\[mysqld\]$/a\innodb_max_dirty_pages_pct=75"                     ${MYCNF}
+  sed -i "/^\[mysqld\]$/a\innodb_stats_on_metadata=Off"                      ${MYCNF}
+  sed -i "/^\[mysqld\]$/a\innodb_read_io_threads=4"                          ${MYCNF}
+  sed -i "/^\[mysqld\]$/a\innodb_write_io_threads=4"                         ${MYCNF}
+  sed -i "/^\[mysqld\]$/a\innodb_file_format=Barracuda"                      ${MYCNF}
+  sed -i "/^\[mysqld\]$/a\innodb_file_per_table=1"                           ${MYCNF}
+  sed -i "/^\[mysqld\]$/a\max_allowed_packet=512M\\n"                        ${MYCNF}
+  sed -i "/^\[mysqld\]$/a\max_connections=151"                               ${MYCNF}
+  sed -i "/^\[mysqld\]$/a\max_binlog_size=64M"                               ${MYCNF}
+  sed -i "/^\[mysqld\]$/a\#binlog_ignore_db=performance_schema\\n"           ${MYCNF}
+  sed -i "/^\[mysqld\]$/a\#binlog_ignore_db=information_schema"              ${MYCNF}
+  sed -i "/^\[mysqld\]$/a\#binlog_ignore_db=mysql"                           ${MYCNF}
+  sed -i "/^\[mysqld\]$/a\long_query_time=2\\n"                              ${MYCNF}
+  sed -i "/^\[mysqld\]$/a\slow_query_log_file=/var/log/mysql/slow.log"       ${MYCNF}
+  sed -i "/^\[mysqld\]$/a\slow_query_log=ON"                                 ${MYCNF}
+  sed -i "/^\[mysqld\]$/a\skip-character-set-client-handshake\\n"            ${MYCNF}
+  sed -i "/^\[mysqld\]$/a\character-set-server=${DBCHARSET}"                 ${MYCNF}
+  sed -i "/^\[mysqld\]$/a\log-bin=/var/lib/mysql/binlog/mysqld-bin\\n"       ${MYCNF}
+  sed -i "/^\[mysqld\]$/a\expire_logs_days=2"                                ${MYCNF}
+  sed -i "/^\[mysqld\]$/a\#log_output=FILE"                                  ${MYCNF}
+  sed -i "/^\[mysqld\]$/a\server-id=${SERVERID}"                             ${MYCNF}
+  sed -i "/^\[mysqld_safe\]$/i\\\n"                                          ${MYCNF}
+  echo ""                                                           | tee -a ${MYCNF}
+  echo "[client]"                                                   | tee -a ${MYCNF}
+  echo "default-character-set=${DBCHARSET}"                         | tee -a ${MYCNF}
+  echo ""                                                           | tee -a ${MYCNF}
+  echo "[mysql]"                                                    | tee -a ${MYCNF}
+  echo "default-character-set=${DBCHARSET}"                         | tee -a ${MYCNF}
+  echo ""                                                           | tee -a ${MYCNF}
+  echo "[mysqldump]"                                                | tee -a ${MYCNF}
+  echo "default-character-set=${DBCHARSET}"                         | tee -a ${MYCNF}
+  echo ""                                                           | tee -a ${MYCNF}
+fi
 
-[client]
-default-character-set=${DBCHARSET}
+# MYSQL_SERVER_INSTALL_STAT 変数が0であれば mysqld を起動する (MySQL 5.6)
+if [ ${MYSQL_SERVER_INSTALL_STAT} = 0 -a ${MYSQLVER} = 5.6 ];
+then
+  mkdir -p     /var/log/mysql/
+  chown mysql. /var/log/mysql/
+  mkdir -p     /var/lib/mysql/binlog/
+  chown mysql. /var/lib/mysql/binlog/
+  systemctl start mysqld.service
+  systemctl enable mysqld.service
+fi
 
-[mysql]
-default-character-set=${DBCHARSET}
+# MYSQL_SERVER_INSTALL_STAT 変数が0であれば mysqld を起動する (MySQL 5.7)
+if [ ${MYSQL_SERVER_INSTALL_STAT} = 0 -a ${MYSQLVER} = 5.7 ];
+then
+  mv /etc/my.cnf{,.DISABLED}
+  cd /var/lib/mysql
+  mysqld                    \
+    --secure-file-priv      \
+    --initialize-insecure   \
+    --no-defaults           \
+    --user=mysql            \
+    --log-error-verbosity=3
+  mkdir -p     /var/lib/mysql/binlog/
+  chown mysql. /var/lib/mysql/binlog/
+  cd
+  mv /etc/my.cnf.DISABLED /etc/my.cnf
+  systemctl start mysqld.service
+  systemctl enable mysqld.service
+fi
 
-[mysqldump]
-default-character-set=${DBCHARSET}
+# MYSQL_SERVER_INSTALL_STAT 変数が0 かつ、MySQLのバージョンが5.6であれば 
+# mysql_secure_installation 相当の処理を行う
+if [ ${MYSQL_SERVER_INSTALL_STAT} = 0 -a ${MYSQLVER} = 5.6 ];
+then
+  mysql -u root -e "SET PASSWORD FOR root@localhost=PASSWORD('${MYSQLROOTPW}');"
+  echo [client]                    | tee    /root/.my.cnf
+  echo user=root                   | tee -a /root/.my.cnf
+  echo password=\"${MYSQLROOTPW}\" | tee -a /root/.my.cnf
+  echo host=${MYSQLSERVER_ADDRESS} | tee -a /root/.my.cnf
+  echo [mysqladmin]                | tee -a /root/.my.cnf
+  echo user=root                   | tee -a /root/.my.cnf
+  echo password=\"${MYSQLROOTPW}\" | tee -a /root/.my.cnf
+  echo host=${MYSQLSERVER_ADDRESS} | tee -a /root/.my.cnf
+  echo [mysqldump]                 | tee -a /root/.my.cnf
+  echo user=root                   | tee -a /root/.my.cnf
+  echo password=\"${MYSQLROOTPW}\" | tee -a /root/.my.cnf
+  echo host=${MYSQLSERVER_ADDRESS} | tee -a /root/.my.cnf
+  mysql -e "SET PASSWORD FOR root@127.0.0.1=PASSWORD('${MYSQLROOTPW}');"
+  mysql -e "SET PASSWORD FOR root@\"::1\"=PASSWORD('${MYSQLROOTPW}');"
+  # MYSQLSERVER_ADDRESS 変数がlocalhostでなかった場合の処理を行う
+  MYSQLSERVER_ADDRESS_STATUS=$(echo ${MYSQLSERVER_ADDRESS} | egrep '(localhost|127.0.0.1|::1)' > /dev/null ; echo $?)
+  if [ ! 0 ${MYSQLSERVER_ADDRESS_STATUS} ];
+  then
+    mysql -e "SET PASSWORD FOR root@${MYSQLSERVER_ADDRESS}=PASSWORD('${MYSQLROOTPW}');"
+  fi
+  mysql -e "delete from mysql.user where password='';"
+  mysql -e 'FLUSH PRIVILEGES;'
+fi
 
+# MYSQL_SERVER_INSTALL_STAT 変数が0 かつ、MySQLのバージョンが5.7であれば 
+# mysql_secure_installation 相当の処理を行う
+if [ ${MYSQL_SERVER_INSTALL_STAT} = 0 -a ${MYSQLVER} = 5.7 ];
+then
+  echo "USE mysql; SET PASSWORD FOR root@localhost=PASSWORD('${MYSQLROOTPW}');" | \
+    tee /root/MYSQLCOMMAND.txt
+  mysql < /root/MYSQLCOMMAND.txt
+  echo [client]                           | tee    /root/.my.cnf
+  echo user=root                          | tee -a /root/.my.cnf
+  echo password=\"${MYSQLROOTPW}\"        | tee -a /root/.my.cnf
+  echo host=${MYSQLSERVER_ADDRESS}        | tee -a /root/.my.cnf
+  echo [mysqladmin]                       | tee -a /root/.my.cnf
+  echo user=root                          | tee -a /root/.my.cnf
+  echo password=\"${MYSQLROOTPW}\"        | tee -a /root/.my.cnf
+  echo host=${MYSQLSERVER_ADDRESS}        | tee -a /root/.my.cnf
+  echo [mysqldump]                        | tee -a /root/.my.cnf
+  echo user=root                          | tee -a /root/.my.cnf
+  echo password=\"${MYSQLROOTPW}\"        | tee -a /root/.my.cnf
+  echo host=${MYSQLSERVER_ADDRESS}        | tee -a /root/.my.cnf
+fi
+
+# MYSQL_SERVER_INSTALL_STAT 変数が0であれば mytopの設定を行う
+if [ ${MYSQL_SERVER_INSTALL_STAT} = 0 ];
+then
+  cat /root/.my.cnf                       | \
+    grep ^[up]                            | \
+    sort -nr                              | \
+    uniq                                  | \
+    sed -e "s/word//g;s/\"//g"            | \
+    tee /root/.mytop
+  echo db=mysql | tee -a /root/.mytop
+fi
+
+#   (A1) MYSQL_SERVER_INSTALL_STATが 0 (mysql-community-server がインストールされている) の場合 :
+#     かつ 変数 MYSQLDBNAME が空欄の場合 :
+#       かつ 変数 ADMINUSER_VHOST_CMS_INSTALL が on の場合 :
+#         かつ 変数 ADMINUSER_VHOST_CMS_TOOL が wordpress の場合 :
+#           MYSQLDBNAME 変数は強制的に wpdb0001 となる。
+if [ ${MYSQL_SERVER_INSTALL_STAT} = 0 ];
+then
+  if [ ${#MYSQLDBNAME} = 0 ];
+  then
+    if [ ${ADMINUSER_VHOST_CMS_INSTALL} = on ];
+    then
+      if [ 0 = $(echo ${CMS} | egrep -i wordpress > /dev/null ; echo $?) ];
+      then
+        MYSQLDBNAME=wpdb0001
+        mysql -e "CREATE DATABASE ${MYSQLDBNAME};"
+        mysql -e "GRANT ALL PRIVILEGES ON \`${MYSQLDBNAME}\`.* TO ${DBUSERNAME}@${MYSQLSERVER_ADDRESS} IDENTIFIED BY \"${DBUSERPASS}\";"
+      fi
+    fi
+  fi
+fi
+
+#	#   (A2) MYSQL_SERVER_INSTALL_STATが 0 (mysql-community-server がインストールされている) の場合 :
+#	#     かつ 変数 MYSQLDBNAME が空欄の場合 :
+#	#       かつ 変数 ADMINUSER_VHOST_CMS_INSTALL が on の場合 :
+#	#         かつ 変数 ADMINUSER_VHOST_CMS_TOOL が XXXXXXXX の場合 :
+#	#           MYSQLDBNAME 変数は強制的に XXDB0001 となる(未実装)。
+#	if [ ${MYSQL_SERVER_INSTALL_STAT} = 0 ];
+#	then
+#	  if [ ${#MYSQLDBNAME} = 0 ];
+#	  then
+#		if [ ${ADMINUSER_VHOST_CMS_INSTALL} = on ];
+#		then
+#		  if [ ! 0 = $(echo ${CMS} | egrep -i wordpress > /dev/null ; echo $?) ];
+#		  then
+#			MYSQLDBNAME=XXDB0001
+#			mysql -e "CREATE DATABASE ${MYSQLDBNAME};"
+#		  fi
+#		fi
+#	  fi
+#	fi
+
+#   (A3) MYSQL_SERVER_INSTALL_STATが 0 (mysql-community-server がインストールされている) の場合 :
+#     かつ 変数 MYSQLDBNAME が空欄の場合 :
+#       かつ 変数 ADMINUSER_VHOST_CMS_INSTALL が off の場合 :
+#         MYSQLDBNAME 変数は強制的に mydb0001 となる。
+if [ ${MYSQL_SERVER_INSTALL_STAT} = 0 ];
+then
+  if [ ${#MYSQLDBNAME} = 0 ];
+  then
+    if [ ${ADMINUSER_VHOST_CMS_INSTALL} = off ];
+    then
+      MYSQLDBNAME=mydb0001
+      mysql -e "CREATE DATABASE ${MYSQLDBNAME};"
+      mysql -e "GRANT ALL PRIVILEGES ON \`${MYSQLDBNAME}\`.* TO ${DBUSERNAME}@${MYSQLSERVER_ADDRESS} IDENTIFIED BY \"${DBUSERPASS}\";"
+    fi
+  fi
+fi
+
+#   (A4) MYSQL_SERVER_INSTALL_STATが 0 (mysql-community-server がインストールされている) の場合 :
+#     かつ 変数 MYSQLDBNAME が空欄でない場合 :
+#       MYSQLDBNAME 変数に代入されたDB名のデータベースを作成する。
+if [ ${MYSQL_SERVER_INSTALL_STAT} = 0 ];
+then
+  if [ ${#MYSQLDBNAME} = 0 ];
+  then
+    mysql -e "CREATE DATABASE ${MYSQLDBNAME};"
+    mysql -e "GRANT ALL PRIVILEGES ON \`${MYSQLDBNAME}\`.* TO ${DBUSERNAME}@${MYSQLSERVER_ADDRESS} IDENTIFIED BY \"${DBUSERPASS}\";"
+  fi
+fi
+
+#   (B1) MYSQLSERVER_ADDRESS=localhost でない(リモートホストである)場合 :
+#     かつ 変数 MYSQLDBNAME が空欄の場合 :
+#       B1-1: MySQLクライアントはインストールする。(この時点でされている)
+#       B1-2: ADMINUSER_VHOST_CMS_INSTALL が on であってもCMSのインストールはスキップする。
+#             (ADMINUSER_VHOST_CMS_INSTALL 変数を off に上書きする)
+if [ ${MYSQL_SERVER_INSTALL_STAT} = 1 ];
+then
+  if [ ! ${#MYSQLDBNAME} = 0 ];
+  then
+    ADMINUSER_VHOST_CMS_INSTALL=off
+  fi
+fi
+
+#   (B2) MYSQLSERVER_ADDRESS=localhost でない(リモートホストである)場合 :
+#     かつ 変数 MYSQLDBNAME が空欄でない場合 :
+#       B2-1: MySQLクライアントはインストールする。
+#       B2-2: mysqlコマンドで接続チェックをする。
+#         B2-2 正常終了: ADMINUSER_VHOST_CMS_INSTALL が on であればCMSインストールを続行するので同変数を上書きしない。
+#         B2-2 異常終了: ADMINUSER_VHOST_CMS_INSTALL が on であってもCMSのインストールはスキップするので同変数を上書きする。
+if [ ${MYSQL_SERVER_INSTALL_STAT} = 1 ];
+then
+  if [ ! ${#MYSQLDBNAME} = 0 ];
+  then
+    # ここでリモートホストのMySQL接続を行い終了ステータスを判定する
+    MYSQL_CON_STAT=$(
+                     mysql                        \
+                       -h ${MYSQLSERVER_ADDRESS}  \
+                       -u ${DBUSERNAME}           \
+                       -p ${DBUSERPASS}           \
+                       -N                         \
+                       -s                         \
+                       -e "SHOW DATABASES;"     | \
+                       egrep ${MYSQLDBNAME}     > /dev/null ; echo $?
+    )
+    if [ ${MYSQL_CON_STAT} = 0 ];
+    then
+      :
+    else
+      ADMINUSER_VHOST_CMS_INSTALL=off
+    fi
+  fi
+fi
+
+# 管理者ユーザーの .my.cnf .mytop を作成する
+if [ ${MYSQL_SERVER_INSTALL_STAT} = 0 ];
+then
+  echo [client]                           | tee    /home/${ADMINUSERNAME}/.my.cnf
+  echo user=${DBUSERNAME}                 | tee -a /home/${ADMINUSERNAME}/.my.cnf
+  echo password=\"${DBUSERPASS}\"         | tee -a /home/${ADMINUSERNAME}/.my.cnf
+  echo host=${MYSQLSERVER_ADDRESS}        | tee -a /home/${ADMINUSERNAME}/.my.cnf
+  echo [mysqladmin]                       | tee -a /home/${ADMINUSERNAME}/.my.cnf
+  echo user=${DBUSERNAME}                 | tee -a /home/${ADMINUSERNAME}/.my.cnf
+  echo password=\"${DBUSERPASS}\"         | tee -a /home/${ADMINUSERNAME}/.my.cnf
+  echo host=${MYSQLSERVER_ADDRESS}        | tee -a /home/${ADMINUSERNAME}/.my.cnf
+  echo [mysqldump]                        | tee -a /home/${ADMINUSERNAME}/.my.cnf
+  echo user=${DBUSERNAME}                 | tee -a /home/${ADMINUSERNAME}/.my.cnf
+  echo password=\"${DBUSERPASS}\"         | tee -a /home/${ADMINUSERNAME}/.my.cnf
+  echo host=${MYSQLSERVER_ADDRESS}        | tee -a /home/${ADMINUSERNAME}/.my.cnf
+  cat /home/${ADMINUSERNAME}/.my.cnf      | \
+    grep ^[up]                            | \
+    sort -nr                              | \
+    uniq                                  | \
+    sed -e "s/word//g;s/\"//g"            | \
+    tee /home/${ADMINUSERNAME}/.mytop
+  echo db=${MYSQLDBNAME}                  | \
+    tee -a /home/${ADMINUSERNAME}/.mytop
+fi
+chown -R ${ADMINUSERNAME}. /home/${ADMINUSERNAME}
+}
+
+PHPVER_SELECT() {
+  # (仕様変更) PHPは5系 or 7系を選択し、デフォルト(PHPVERSION変数が空の場合)は7系(7.0)とする
+  # PHPVERSION 変数が空であれば PHPVERSION_DEFAULT 変数で上書きする
+  PHPVERSION_DEFAULT=7.0
+  PHPVERSION_NEWEST=7.1
+  if [ ${#PHPVERSION} = 0 ];
+  then
+    PHPVERSION=${PHPVERSION_DEFAULT}
+  fi
+
+  PHP5_VAL_RESULT=$(echo ${PHPVERSION} | egrep "^(5|5[0-9]|5.[0-9])$" > /dev/null ; echo $?)
+  if [ ${PHP5_VAL_RESULT} = 0 ];
+  then
+    PHPVERSION=5
+  fi
+
+  PHP70_VAL_RESULT=$(echo ${PHPVERSION} | egrep "^(7|70|7.0)$" > /dev/null ; echo $?)
+  if [ ${PHP70_VAL_RESULT} = 0 ];
+  then
+    PHPVERSION=7.0
+  fi
+
+  PHP71_VAL_RESULT=$(echo ${PHPVERSION} | egrep "^(71|7.1)$" > /dev/null ; echo $?)
+  if [ ${PHP71_VAL_RESULT} = 0 ];
+  then
+    PHPVERSION=7.1
+  fi
+
+  PHP_OTHER_VAL_RESULT=$(echo ${PHPVERSION} | egrep -v "^([57]$|[57]\.[0-9.]{1,}$)" > /dev/null ; echo $?)
+  if [ ${PHP_OTHER_VAL_RESULT} = 0 ];
+  then
+    PHPVERSION=${PHPVERSION_DEFAULT}
+  fi
+}
+
+PHP_AND_PERL_INSTALL() {
+  [ ${PHPVERSION} = 5   ] && PHPREMIREPO=remi-php56
+  [ ${PHPVERSION} = 7.0 ] && PHPREMIREPO=remi-php70
+  [ ${PHPVERSION} = 7.1 ] && PHPREMIREPO=remi
+
+  PHP_DEP_PACKAGES=(
+    gd-last
+    fontconfig
+    fontpackages-filesystem
+    jbigkit-libs
+    fastlz
+    libX11
+    libX11-common
+    libXau
+    libXpm
+    libjpeg-turbo
+    libpng
+    libtiff
+    libvpx
+    libxcb
+    libicu
+    libzip-last
+  )
+
+  PHP_PACKAGES=(
+    php-cli
+    php-common
+    php-gd
+    php-mbstring
+    php-mysqlnd
+    php-opcache
+    php-pdo
+    php-pear
+    php-pecl-apcu
+    php-pecl-igbinary
+    php-pecl-jsonc
+    php-pecl-memcache
+    php-pecl-memcached
+    php-pecl-msgpack
+    php-pecl-zip
+    php-process
+    php-xml
+    php-xmlrpc
+  )
+
+  # WEBSERVER 変数が httpd だったら、mod_fcgidパッケージも追加する
+  if [ ${WEBSERVER} = httpd ];
+  then
+    PHP_PACKAGES=("${PHP_PACKAGES[@]}" mod_fcgid)
+  fi
+
+  # WEBSERVER 変数が nginx だったら、php-fpmパッケージも追加する
+  if [ ${WEBSERVER} = nginx ];
+  then
+    PHP_PACKAGES=("${PHP_PACKAGES[@]}" php-fpm)
+  fi
+
+  # PHPのバージョンが最新であれば、 配列 PHP_PACKAGES の中身を 配列 PHP_NEWEST_PACKAGES へ入れなおす
+  if [ ${PHPVERSION} = ${PHPVERSION_NEWEST} ];
+  then
+    PHP_NEWEST_NUM=php$(echo ${PHPVERSION} | sed -e "s/\.//")
+    PHP_NEWEST_PACKAGES=($(echo "${PHP_PACKAGES[@]}" | sed -e "s/php/${PHP_NEWEST_NUM}-php/g"))
+  fi
+
+  # PHPのバージョンが最新であれば PHP_NEWEST_PACKAGES を、そうでなければ PHP_PACKAGES をインストールする
+  if [ ${PHPVERSION} = ${PHPVERSION_NEWEST} ];
+  then
+    yum -y --enablerepo=remi           install ${PHP_DEP_PACKAGES[@]}
+    yum -y --enablerepo=remi           install ${PHP_NEWEST_PACKAGES[@]}
+  else
+    yum -y --enablerepo=remi           install ${PHP_DEP_PACKAGES[@]}
+    yum -y --enablerepo=${PHPREMIREPO} install ${PHP_PACKAGES[@]}
+  fi
+
+  yum -y install perl perl-FCGI perl-Crypt-DSA perl-Cache-Cache
+
+  # HHVM_INSTALL 関数を呼び出す
+  HHVM_INSTALL
+}
+
+HHVM_INSTALL() {
+  HHVM_REPO_BASEURI=http://mirrors.linuxeye.com/hhvm-repo/7/x86_64
+  HHVM_RPMFILE=$(curl -Ls ${HHVM_REPO_BASEURI} | egrep "href=\"hhvm-[0-9\.-]{1,}el7.centos.x86_64.rpm" | \
+                   sed -e "s/<t[rd]>//g;
+                     s/<\/t[rd]>//g;
+                     s/<a href=//g;
+                     s/<\/a>//g;
+                     s/title=//g;
+                     s/\"//g;
+                     s/[<>]/ /g;
+                     s/[[:space:]][0-9]*M//g" | sort -k 4 -nr | head -n 1 | awk '{print $1}')
+
+  HHVM_REQ_PACKAGES=(
+    ImageMagick-devel
+    binutils-devel
+    boost-devel
+    bzip2-devel
+    cmake
+    cpp
+    elfutils-libelf-devel
+    enca
+    expat-devel
+    gcc-c++
+    git
+    glog-devel
+    gmp-devel
+    gperf
+    jemalloc-devel
+    libcap-devel
+    libcurl-devel
+    libdwarf-devel
+    libedit-devel
+    libevent-devel
+    libicu-devel
+    libjpeg-turbo-devel
+    libmcrypt-devel
+    libmemcached-devel
+    libpng-devel
+    libvpx-devel
+    libxml2-devel
+    libxslt-devel
+    libxslt-devel
+    libyaml
+    libyaml-devel
+    libzip-devel
+    lz4-devel
+    make
+    numactl-devel
+    ocaml
+    oniguruma-devel
+    openldap-devel
+    openssl-devel
+    pcre-devel
+    psmisc
+    readline-devel
+    sqlite-devel
+    tbb-devel
+    unixODBC-devel
+    uw-imap-devel
+  )
+
+  yum -y --enablerepo=epel install ${HHVM_REQ_PACKAGES[@]}
+  yum -y install ${HHVM_REPO_BASEURI}/${HHVM_RPMFILE}
+
+  # hhvm.service ファイルを /usr/lib/systemd/system から /etc/systemd/system へコピーして待受ポートを変更する
+  SYSTEMD_SERVICEFILE_SRCDIR=/usr/lib/systemd/system
+  SYSTEMD_SERVICEFILE_DSTDIR=/etc/systemd/system
+  SYSTEMD_SERVICENAME_HHVM=hhvm.service
+  cp -p ${SYSTEMD_SERVICEFILE_SRCDIR}/${SYSTEMD_SERVICENAME_HHVM} ${SYSTEMD_SERVICEFILE_DSTDIR}/${SYSTEMD_SERVICENAME_HHVM}
+  sed -i "/-vServer.Port=/s/9001/${HHVM_TCPPORT}/" ${SYSTEMD_SERVICEFILE_DSTDIR}/${SYSTEMD_SERVICENAME_HHVM}
+
+  # hhvmの実行ユーザーを ADMINUSERNAME 変数へ置換する
+  sed -i "s/nginx/${ADMINUSERNAME}/g" ${SYSTEMD_SERVICEFILE_DSTDIR}/${SYSTEMD_SERVICENAME_HHVM}
+
+  # /etc/hhvm/server.ini も待受ポートを変更する
+  mkdir -p /etc/hhvm/BACKUP
+  cp -p /etc/hhvm/server.ini /etc/hhvm/BACKUP/server.ini.orig
+  sed -i "/^hhvm.server.port/s/9001/${HHVM_TCPPORT}/" /etc/hhvm/server.ini
+
+  # /etc/hhvm/server.ini のタイムゾーンを Asia/Tokyo へ変更する
+  sed -i "/^date.timezone/s/[[:alnum:]\/]*$/${PHP_TZ_REGION}\/${PHP_TZ_CITY}/" /etc/hhvm/server.ini
+
+  systemctl enable hhvm
+
+  # CentOS7 は再起動で /var/run 以下の勝手ディレクトリを削除しやがるので対策。
+  mkdir -p /var/{log,run}/hhvm/
+  chown -R root:${ADMINGROUPNAME} /var/{log,run}/hhvm/
+  mkdir -p /etc/tmpfiles.d/
+  echo "d /var/run/hhvm 0755 ${ADMINUSERNAME} ${ADMINUSERNAME}" | tee /etc/tmpfiles.d/hhvm.conf
+
+}
+
+PHP_INIT() {
+  # PHPのバージョンが最新であれば、PHP関連のPATHを通し、 php.iniのシンボリックリンクを /etc に張る。 そしてタイムゾーンを追記する。
+  if [ ${PHPVERSION} = ${PHPVERSION_NEWEST} ];
+  then
+    cp -p /etc/profile{,.ORIG}
+    echo "" | tee -a /etc/profile
+    echo source /opt/remi/${PHP_NEWEST_NUM}/enable | tee -a /etc/profile
+    ln -s /etc/opt/remi/${PHP_NEWEST_NUM}/php.ini /etc
+    cp -p /etc/opt/remi/${PHP_NEWEST_NUM}/php.ini{,.ORIG}
+    sed -i "/\;date.timezone/a date.timezone\ =\ ${PHP_TZ_REGION}\/${PHP_TZ_CITY}" \
+      /etc/opt/remi/${PHP_NEWEST_NUM}/php.ini
+  else
+    cp -p /etc/php.ini{,.ORIG}
+    sed -i "/\;date.timezone/a date.timezone\ =\ ${PHP_TZ_REGION}\/${PHP_TZ_CITY}" /etc/php.ini
+  fi
+
+  if [ ${WEBSERVER} = nginx ];
+  then
+    if [ ${PHPVERSION} = ${PHPVERSION_NEWEST} ];
+    then
+      PHPFPM_WWWCONFDIR=/etc/opt/remi/${PHP_NEWEST_NUM}/php-fpm.d
+      PHPFPM_WWWCONF=${PHPFPM_WWWCONFDIR}/www.conf
+      PHPFPM_USERCONF=${PHPFPM_WWWCONFDIR}/${ADMINUSERNAME}.conf
+    else
+      PHPFPM_WWWCONFDIR=/etc/php-fpm.d
+      PHPFPM_WWWCONF=${PHPFPM_WWWCONFDIR}/www.conf
+      PHPFPM_USERCONF=${PHPFPM_WWWCONFDIR}/${ADMINUSERNAME}.conf
+    fi
+    mkdir -p ${PHPFPM_WWWCONFDIR}/BACKUP
+    cp -p ${PHPFPM_WWWCONF} ${PHPFPM_WWWCONFDIR}/BACKUP/
+    mv ${PHPFPM_WWWCONF} ${PHPFPM_USERCONF}
+    sed -i "/^\[www\]/s/www/${ADMINUSERNAME}/g" ${PHPFPM_USERCONF}
+    sed -i "/^[ug][[:alnum:]]*[[:space:]]=/s/[[:alnum:]]*$/${ADMINUSERNAME}/g" ${PHPFPM_USERCONF}
+    sed -i "/^listen[[:space:]]/s/[[:alnum:]\.:]*$/\/var\/run\/php-fpm-${ADMINUSERNAME}.sock/" ${PHPFPM_USERCONF}
+    sed -i "/^listen\.allowed_clients/d" ${PHPFPM_USERCONF}
+    sed -i "/^\[${ADMINUSERNAME}\]/a listen.mode = 0666" ${PHPFPM_USERCONF}
+  fi
+
+  # WEBサーバーがhttpdであれば、ユーザー用のphp.iniをコピーする
+  if [ ${WEBSERVER} = httpd ];
+  then
+    if [ ${PHPVERSION} = ${PHPVERSION_NEWEST} ];
+    then
+      cp -p /etc/opt/remi/${PHP_NEWEST_NUM}/php.ini /home/${ADMINUSERNAME}/etc
+    else
+      cp -p /etc/php.ini /home/${ADMINUSERNAME}/etc
+    fi
+  fi
+
+}
+
+OPENSSL_CERTGEN() {
+  yum -y install openssl
+  CERTDIR=/etc/${WEBSERVER}/CERTS/${NEWFQDN}/${YEAR}
+  KEYFILE=${CERTDIR}/server.key
+  CSRFILE=${CERTDIR}/server.csr
+  CRTFILE=${CERTDIR}/server.crt
+  BITS=2048
+  DAYS=3650
+  mkdir -p ${CERTDIR}
+  openssl genrsa -out ${KEYFILE} ${BITS}
+
+  [ ! 0 = ${#DN_OU} ] && \
+  openssl req -new -key ${KEYFILE} -out ${CSRFILE} -subj \
+  "/C=${DN_C}/ST=${DN_ST}/L=${DN_L}/O=${DN_O}/OU=${DN_OU}/CN=${DN_CN}" 
+
+  [ 0 = ${#DN_OU} ] && \
+  openssl req -new -key ${KEYFILE} -out ${CSRFILE} -subj \
+  "/C=${DN_C}/ST=${DN_ST}/L=${DN_L}/O=${DN_O}/CN=${DN_CN}" 
+
+  openssl x509 -in ${CSRFILE} -days ${DAYS} -req \
+  -signkey ${KEYFILE} > ${CRTFILE}
+}
+
+NGINX_REPOFILE=/etc/yum.repos.d/nginx.repo
+NGINX_REPO_GEN() {
+cat << '_EOL_' | tee ${NGINX_REPOFILE}
+[nginx]
+name=nginx repo
+baseurl=http://nginx.org/packages/mainline/centos/7/$basearch/
+gpgcheck=0
+enabled=1
+_EOL_
+}
+
+NGINX_INSTALL() {
+  NGINX_REPO_URI=http://nginx.org/packages/centos/7/noarch/RPMS/nginx-release-centos-7-0.el7.ngx.noarch.rpm
+  NGINX_REPO_HTTPSTATS=$(curl -LI ${NGINX_REPO_URI} -o /dev/null -w '%{http_code}\n' -s)
+  if [ ${NGINX_REPO_HTTPSTATS} = 200 ];
+  then
+    yum -y install ${NGINX_REPO_URI}
+    if [ ! 0 = $(cat ${NGINX_REPOFILE} | egrep mainline > /dev/null ; echo $?) ];
+    then
+      sed -i "/^baseurl/s/packages/packages\/mainline/" ${NGINX_REPOFILE}
+    fi
+  else    
+    NGINX_REPO_GEN
+  fi
+  if [ -f ${NGINX_REPOFILE} ];
+  then
+    yum -y install nginx
+  fi
+
+  yum -y --enablerepo=epel install spawn-fcgi fcgi-devel
+  mkdir -p /root/src/fcgiwrap
+  wget http://github.com/gnosek/fcgiwrap/tarball/master -O /root/src/fcgiwrap/fcgiwrap.tar.gz
+  tar xvzf /root/src/fcgiwrap/fcgiwrap.tar.gz
+  cd gnosek-fcgiwrap-*
+  autoreconf -i
+  ./configure
+  make
+  make install
+
+  mkdir -p /etc/sysconfig/BACKUP/
+  cp -p /etc/sysconfig/spawn-fcgi /etc/sysconfig/BACKUP/spawn-fcgi.orig
+  echo "OPTIONS=\"-u ${ADMINUSERNAME}                 \
+        -g ${ADMINUSERNAME}                           \
+        -a 127.0.0.1                                  \
+        -p 9001                                       \
+        -P /var/run/spawn-fcgi-${ADMINUSERNAME}.pid   \
+        -- /usr/local/sbin/fcgiwrap\""              | \
+    sed -e "s/[[:space:]]\{1,\}/ /g"                | \
+    tee -a /etc/sysconfig/spawn-fcgi
+
+}
+
+NGINX_VHOSTCONF_CREATE() {
+mkdir -p /etc/nginx/BACKUP
+cp -p /etc/nginx/nginx.conf /etc/nginx/BACKUP/nginx.conf.orig
+sed -i "/^worker_processes/s/[0-9]*;$/auto;/" /etc/nginx/nginx.conf
+
+cat << _EOL_ | tee ${VHOSTCONF}
+upstream php-fpm-${ADMINUSERNAME} {
+    ip_hash;
+    server unix:/var/run/php-fpm-${ADMINUSERNAME}.sock;
+}
+
+server {
+    listen                       80 default_server;
+    server_name                  ${NEWFQDN};
+    access_log                   ${ACCESSLOG}  main;
+    error_log                    ${ERRORLOG};
+
+    location / {
+        root                     ${DROOTDIR};
+        index                    index.php index.html index.htm;
+        ##--@WORDPRESS@--#### WordPressのパーマリンク設定をカスタム構造に ##
+        ##--@WORDPRESS@--##if (-f \$request_filename) {
+        ##--@WORDPRESS@--##        expires 30d;
+        ##--@WORDPRESS@--##}
+        ##--@WORDPRESS@--##if (!-e \$request_filename) {
+        ##--@WORDPRESS@--##        rewrite ^.+?(\$/wp-.*) \$1 last;
+        ##--@WORDPRESS@--##        rewrite ^.+?(/.*\.php)\$ \$1 last;
+        ##--@WORDPRESS@--##        rewrite ^ /index.php last;
+        ##--@WORDPRESS@--##}
+    }
+
+    location ~ \.php\$ {
+        root                     ${DROOTDIR};
+        fastcgi_pass             php-fpm-${ADMINUSERNAME}; # FOR_PHP-FPM
+        #fastcgi_pass             127.0.0.1:9000;           # FOR_HHVM
+        fastcgi_index            index.php;
+        fastcgi_param            SCRIPT_FILENAME  \$document_root/\$fastcgi_script_name;
+        client_max_body_size     256M;
+        include                  fastcgi_params;
+    }
+
+    location ~ \.pl\$ {
+        gzip                     off;
+        root                     ${DROOTDIR};
+        include                  /etc/nginx/fastcgi_params;
+        fastcgi_pass             127.0.0.1:9001;
+        fastcgi_index            index.pl;
+        fastcgi_param            SCRIPT_FILENAME \$document_root/\$fastcgi_script_name;
+    }
+
+    location ~ \.cgi\$ {
+        gzip                     off;
+        root                     ${DROOTDIR};
+        include                  /etc/nginx/fastcgi_params;
+        fastcgi_pass             127.0.0.1:9001;
+        fastcgi_index            index.cgi;
+        fastcgi_param            SCRIPT_FILENAME \$document_root/\$fastcgi_script_name;
+    }
+
+    error_page                   404             /404.html;
+    location = /404.html {
+        root                     /usr/share/${WEBSERVER}/html;
+        internal;
+    }
+
+    error_page                   500 502 503 504 /50x.html;
+    location = /50x.html {
+        root                     /usr/share/${WEBSERVER}/html;
+        internal;
+    }
+}
+
+server {
+    listen                       443 ssl;
+    server_name                  ${NEWFQDN};
+    access_log                   ${ACCESSLOG}  main;
+    error_log                    ${ERRORLOG};
+
+    ssl_certificate              ${CERTDIR}/server.crt;
+    ssl_certificate_key          ${CERTDIR}/server.key;
+
+    ssl_session_timeout          5m;
+    ssl_protocols                TLSv1.2 TLSv1.1 TLSv1;
+    ssl_ciphers ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES256-GCM-SHA384:DHE-RSA-AES128-GCM-SHA256:DHE-DSS-AES128-GCM-SHA256:kEDH+AESGCM:ECDHE-RSA-AES128-SHA256:ECDHE-ECDSA-AES128-SHA256:ECDHE-RSA-AES128-SHA:ECDHE-ECDSA-AES128-SHA:ECDHE-RSA-AES256-SHA384:ECDHE-ECDSA-AES256-SHA384:ECDHE-RSA-AES256-SHA:ECDHE-ECDSA-AES256-SHA:DHE-RSA-AES128-SHA256:DHE-RSA-AES128-SHA:DHE-DSS-AES128-SHA256:DHE-RSA-AES256-SHA256:DHE-DSS-AES256-SHA:DHE-RSA-AES256-SHA:AES128-GCM-SHA256:AES256-GCM-SHA384:AES128-SHA256:AES256-SHA256:AES128-SHA:AES256-SHA:AES:CAMELLIA:DES-CBC3-SHA:!aNULL:!eNULL:!EXPORT:!DES:!RC4:!MD5:!PSK:!aECDH:!EDH-DSS-DES-CBC3-SHA:!EDH-RSA-DES-CBC3-SHA:!KRB5-DES-CBC3-SHA;
+    ssl_prefer_server_ciphers    on;
+
+    location / {
+        root                     ${DROOTDIR};
+        index                    index.php index.html index.htm;
+        ##--@WORDPRESS@--#### WordPressのパーマリンク設定をカスタム構造に ##
+        ##--@WORDPRESS@--##if (-f \$request_filename) {
+        ##--@WORDPRESS@--##        expires 30d;
+        ##--@WORDPRESS@--##}
+        ##--@WORDPRESS@--##if (!-e \$request_filename) {
+        ##--@WORDPRESS@--##        rewrite ^.+?(\$/wp-.*) \$1 last;
+        ##--@WORDPRESS@--##        rewrite ^.+?(/.*\.php)\$ \$1 last;
+        ##--@WORDPRESS@--##        rewrite ^ /index.php last;
+        ##--@WORDPRESS@--##}
+    }
+
+    location ~ \.php\$ {
+        root                     ${DROOTDIR};
+        fastcgi_pass             php-fpm-${ADMINUSERNAME}; # FOR_PHP-FPM
+        #fastcgi_pass             127.0.0.1:9000;           # FOR_HHVM
+        fastcgi_index            index.php;
+        fastcgi_param            SCRIPT_FILENAME  \$document_root/\$fastcgi_script_name;
+        client_max_body_size     256M;
+        include                  fastcgi_params;
+    }
+
+    location ~ \.pl\$ {
+        gzip                     off;
+        root                     ${DROOTDIR};
+        include                  /etc/nginx/fastcgi_params;
+        fastcgi_pass             127.0.0.1:9001;
+        fastcgi_index            index.pl;
+        fastcgi_param            SCRIPT_FILENAME \$document_root/\$fastcgi_script_name;
+    }
+
+    location ~ \.cgi\$ {
+        gzip                     off;
+        root                     ${DROOTDIR};
+        include                  /etc/nginx/fastcgi_params;
+        fastcgi_pass             127.0.0.1:9001;
+        fastcgi_index            index.cgi;
+        fastcgi_param            SCRIPT_FILENAME \$document_root/\$fastcgi_script_name;
+    }
+
+    error_page                   404             /404.html;
+    location = /404.html {
+        root                     /usr/share/${WEBSERVER}/html;
+        internal;
+    }
+
+    error_page                   500 502 503 504 /50x.html;
+    location = /50x.html {
+        root                     /usr/share/${WEBSERVER}/html;
+        internal;
+    }
+}
 _EOL_
 
-  mkdir -p /var/log/mysql/
-  chown mysql. /var/log/mysql/
-  if [ ${MYSQLVER} = 5.6 ];
-  then
-    mkdir -p /var/lib/mysql/binlog/
-    chown mysql. /var/lib/mysql/binlog/
-    [ ${OSVER} = 6 ] && service mysqld start
-    [ ${OSVER} = 6 ] && chkconfig mysqld on
-    [ ${OSVER} = 7 ] && systemctl start mysqld.service
-    [ ${OSVER} = 7 ] && systemctl enable  mysqld.service
-  fi
-  if [ ${MYSQLVER} = 5.7 ];
-  then
-    mv /etc/my.cnf{,.DISABLED}
-    cd /var/lib/mysql
-    mysqld --secure-file-priv --initialize-insecure --no-defaults --user=mysql --log-error-verbosity=3
-    mkdir -p /var/lib/mysql/binlog/
-    chown mysql. /var/lib/mysql/binlog/
-    cd
-    mv /etc/my.cnf.DISABLED /etc/my.cnf
-    [ ${OSVER} = 6 ] && service mysqld start
-    [ ${OSVER} = 6 ] && chkconfig mysqld on
-    [ ${OSVER} = 7 ] && systemctl start mysqld.service
-    [ ${OSVER} = 7 ] && systemctl enable  mysqld.service
-  fi
-  if [ ${MYSQLVER} = 5.6 ];
-  then
-    mysql -u root -e "SET PASSWORD FOR root@localhost=PASSWORD('${MYSQLROOTPW}');"
-    echo [client] | tee ${HOME}/.my.cnf
-    echo user=root | tee -a ${HOME}/.my.cnf
-    echo password=\"${MYSQLROOTPW}\" | tee -a ${HOME}/.my.cnf
-    echo [mysqladmin] | tee -a ${HOME}/.my.cnf
-    echo user=root | tee -a ${HOME}/.my.cnf
-    echo password=\"${MYSQLROOTPW}\" | tee -a ${HOME}/.my.cnf
-    echo [mysqldump] | tee -a ${HOME}/.my.cnf
-    echo user=root | tee -a ${HOME}/.my.cnf
-    echo password=\"${MYSQLROOTPW}\" | tee -a ${HOME}/.my.cnf
-    mysql -e "SET PASSWORD FOR root@127.0.0.1=PASSWORD('${MYSQLROOTPW}');"
-    mysql -e "SET PASSWORD FOR root@\"::1\"=PASSWORD('${MYSQLROOTPW}');"
-    mysql -e "delete from mysql.user where password='';"
-    mysql -e 'FLUSH PRIVILEGES;'
-  fi
-  if [ ${MYSQLVER} = 5.7 ];
-  then
-    echo "USE mysql; SET PASSWORD FOR root@localhost=PASSWORD('${MYSQLROOTPW}');" | tee ${HOME}/MYSQLCOMMAND.txt
-    mysql < ${HOME}/MYSQLCOMMAND.txt
-    echo [client] | tee ${HOME}/.my.cnf
-    echo user=root | tee -a ${HOME}/.my.cnf
-    echo password=\"${MYSQLROOTPW}\" | tee -a ${HOME}/.my.cnf
-    echo [mysqladmin] | tee -a ${HOME}/.my.cnf
-    echo user=root | tee -a ${HOME}/.my.cnf
-    echo password=\"${MYSQLROOTPW}\" | tee -a ${HOME}/.my.cnf
-    echo [mysqldump] | tee -a ${HOME}/.my.cnf
-    echo user=root | tee -a ${HOME}/.my.cnf
-    echo password=\"${MYSQLROOTPW}\" | tee -a ${HOME}/.my.cnf
-  fi
-  # MySQL 5.6 5.7 共通処理
-  cat ${HOME}/.my.cnf | grep ^[up] | sort -nr | uniq | sed -e "s/word//g;s/\"//g" | tee ${HOME}/.mytop
-  echo db=mysql | tee -a ${HOME}/.mytop
-  for MYSQLUSERS in ${!ADDUSERNAME[@]}
-  do
-    if [ ! 0 = ${#ADDUSERSQLADMIN[${MYSQLUSERS}]} -a yes = ${ADDUSERSQLADMIN[${MYSQLUSERS}]} ];
-      then
-        cp -p ${HOME}/.my.cnf /home/${ADDUSERNAME[${MYSQLUSERS}]}/
-        cp -p ${HOME}/.mytop /home/${ADDUSERNAME[${MYSQLUSERS}]}/
-      else
-        :
-    fi
-  done
-fi
-################################################################################
-
-################################################################################
-# PHP Install
-if [ ${PHPREPO} = base ];
+ERROR_404_HTMLFILE=/usr/share/${WEBSERVER}/html/404.html
+if [ ! -f ${ERROR_404_HTMLFILE} ];
 then
-  if [ httpd = ${WEBSERVER} ];
-  then
-    PHPRPM=$(yum list | grep ^php | awk '{print $1}' | egrep -v '(devel)' | sed -e "s/.x86_64//g;s/.noarch//g" | sort | uniq)
-    yum -y install ${PHPRPM} ${WEBSERVER} mod_ssl \
-    gd \
-    libXpm \
-    perl-DBI \
-    perl-DBD-MySQL \
-    perl-Archive-Zip \
-    perl-XML-SAX \
-    perl-XML-LibXML \
-    perl-XML-NamespaceSupport \
-    perl-Digest-SHA \
-    perl-GD \
-    perl-Crypt-SSLeay \
-    perl-Archive-Tar \
-    perl-IO-Zlib \
-    perl-Package-Constants \
-    ImageMagick-perl \
-    perl-Time-HiRes \
-    perl-parent
-
-    yum --enablerepo=epel -y install perl-FCGI perl-Crypt-DSA perl-Cache-Cache
-    if [ ${OSVER} = 6 ];
-    then
-      yum --enablerepo=rpmforge -y install perl-XML-SAX-Expat perl-Imager
-    fi
-    if [ ${OSVER} = 7 ];
-    then
-      # perl-XML-SAX-Expat install
-      echo "perl-XML-SAX-Expat install"
-      yum -y install perl-ExtUtils-MakeMaker
-      mkdir -p ${HOME}/src
-      cd ${HOME}/src
-      PACKAGE_NAME=perl-XML-SAX-Expat
-      PACKAGE_URI=http://pkgs.repoforge.org/${PACKAGE_NAME}/
-      PACKAGE_FILE="$(
-      curl -s ${PACKAGE_URI} | \
-      egrep -i "(a href=\"${PACKAGE_NAME})" | \
-      awk '{print $6}' | \
-      sed -e "s/href=\"//g;s/\">/ /g" | \
-      awk '{print $1}' | \
-      egrep src.rpm | \
-      sort -n | \
-      tail -n 1
-       )"
-      curl -LO "http://pkgs.repoforge.org/${PACKAGE_NAME}/${PACKAGE_FILE}"
-      rpm -ivh ${PACKAGE_FILE}
-      cd ${HOME}/rpmbuild/SPECS
-      rpmbuild -ba ${PACKAGE_NAME}.spec
-      cd ${HOME}/rpmbuild/RPMS/
-      RPMFILE=$(find $(pwd) -name "${PACKAGE_NAME}*.rpm")
-      yum -y install ${RPMFILE}
-      cd
-      # perl-Imager install
-      echo "perl-Imager install"
-      yum -y install \
-      libpng-devel \
-      freetype-devel \
-      libungif-devel \
-      libtiff-devel \
-      libjpeg-devel \
-      perl-Test-Simple \
-      perl-CPAN
-      yes '' | cpan -i Imager
-      perl -MExtUtils::Installed -e '$i=ExtUtils::Installed->new;print "$_ ".$i->version($_)."\n" for $i->modules;'
-    fi
-
-  fi
-  if [ nginx = ${WEBSERVER} ];
-  then
-    PHPRPM=$(yum list | grep ^php | awk '{print $1}' | egrep -v '(devel)' | sed -e "s/.x86_64//g;s/.noarch//g" | egrep -v '^(php|php-zts)$' | sort | uniq)
-    yum -y install ${PHPRPM} \
-    gd \
-    libXpm \
-    perl-DBI \
-    perl-DBD-MySQL \
-    perl-Archive-Zip \
-    perl-XML-SAX \
-    perl-XML-LibXML \
-    perl-XML-NamespaceSupport \
-    perl-Digest-SHA \
-    perl-GD \
-    perl-Crypt-SSLeay \
-    perl-Archive-Tar \
-    perl-IO-Zlib \
-    perl-Package-Constants \
-    ImageMagick-perl \
-    perl-Time-HiRes \
-    perl-parent
-
-    yum --enablerepo=epel -y install perl-FCGI perl-Crypt-DSA perl-Cache-Cache
-    if [ ${OSVER} = 6 ];
-    then
-      yum --enablerepo=rpmforge -y install perl-XML-SAX-Expat perl-Imager
-    fi
-    if [ ${OSVER} = 7 ];
-    then
-      # perl-XML-SAX-Expat install
-      echo "perl-XML-SAX-Expat install"
-      yum -y install perl-ExtUtils-MakeMaker
-      mkdir -p ${HOME}/src
-      cd ${HOME}/src
-      PACKAGE_NAME=perl-XML-SAX-Expat
-      PACKAGE_URI=http://pkgs.repoforge.org/${PACKAGE_NAME}/
-      PACKAGE_FILE="$(
-      curl -s ${PACKAGE_URI} | \
-      egrep -i "(a href=\"${PACKAGE_NAME})" | \
-      awk '{print $6}' | \
-      sed -e "s/href=\"//g;s/\">/ /g" | \
-      awk '{print $1}' | \
-      egrep src.rpm | \
-      sort -n | \
-      tail -n 1
-       )"
-      curl -LO "http://pkgs.repoforge.org/${PACKAGE_NAME}/${PACKAGE_FILE}"
-      rpm -ivh ${PACKAGE_FILE}
-      cd ${HOME}/rpmbuild/SPECS
-      rpmbuild -ba ${PACKAGE_NAME}.spec
-      cd ${HOME}/rpmbuild/RPMS/
-      RPMFILE=$(find $(pwd) -name "${PACKAGE_NAME}*.rpm")
-      yum -y install ${RPMFILE}
-      cd
-      # perl-Imager install
-      echo "perl-Imager install"
-      yum -y install \
-      libpng-devel \
-      freetype-devel \
-      libungif-devel \
-      libtiff-devel \
-      libjpeg-devel \
-      perl-Test-Simple \
-      perl-CPAN
-      yes '' | cpan -i Imager
-      perl -MExtUtils::Installed -e '$i=ExtUtils::Installed->new;print "$_ ".$i->version($_)."\n" for $i->modules;'
-    fi
-
-    [ ${PHPPKGNAME} = php70 ] && WWWCONF=/etc/opt/remi/${PHPPKGNAME}/php-fpm.d/www.conf || \
-    WWWCONF=/opt/remi/${PHPPKGNAME}/root/etc/php-fpm.d/www.conf
-    cp -p ${WWWCONF}{,.orig}
-    sed -i 's/^user\ \= apache/\;user\ \= apache\nuser\ \=\ nginx/' ${WWWCONF}
-    sed -i 's/^group\ \= apache/\;group\ \= apache\ngroup\ \=\ nginx/' ${WWWCONF}
-
-    [ ${PHPPKGNAME} = php70 ] && PHPINI=/etc/opt/remi/${PHPPKGNAME}/php.ini || \
-    PHPINI=/opt/remi/${PHPPKGNAME}/root/etc/php.ini
-    cp -p ${PHPINI}{,.orig}
-    sed -i 's/\;date.timezone\ \=/\;#date.timezone\ \=\ndate.timezone\ \=\ Asia\/Tokyo/' ${PHPINI}
-
-    ln -s /opt/remi/${PHPPKGNAME}/root/usr/bin/php /usr/bin/php
-    ln -s ${PHPINI} /etc/php.ini
-    [ ${PHPPKGNAME} = php70 ] && ln -s /etc/opt/remi/${PHPPKGNAME}/pear /etc/pear || \
-    ln -s /opt/remi/${PHPPKGNAME}/root/etc/pear /etc/pear
-    [ ${PHPPKGNAME} = php70 ] && ln -s /etc/opt/remi/php70/php-fpm.d /etc/php-fpm.d || \
-    ln -s /opt/remi/${PHPPKGNAME}/root/etc/php-fpm.d /etc/php-fpm.d
-    [ ${PHPPKGNAME} = php70 ] && ln -s /etc/opt/remi/php70/php.d /etc/php.d || \
-    ln -s /opt/remi/${PHPPKGNAME}/root/etc/php.d /etc/php.d
-
-  fi
+cat << _EOL_ | tee ${ERROR_404_HTMLFILE}
+<!DOCTYPE HTML PUBLIC \"-//IETF//DTD HTML 2.0//EN\">
+  <html>
+    <head>
+      <title>404 Not Found</title>
+    </head>
+    <body>
+      <h1>Not Found</h1>
+      <p>The requested URL was not found on this server.</p>
+      <hr>
+      <address>Ahoche/1.9.19 Server at ${ADMINUSER_VHOST} Port 80</address>
+    </body>
+  </html>
+_EOL_
 fi
-#
-if [ ${PHPREPO} = remi ];
-then
-  yum -y --enablerepo=remi install \
-  gd-last \
-  fontconfig \
-  fontpackages-filesystem \
-  jbigkit-libs \
-  libX11 \
-  libX11-common \
-  libXau \
-  libXpm \
-  libjpeg-turbo \
-  libpng \
-  libtiff \
-  libvpx \
-  libxcb \
-  libicu
 
-  if [ httpd = ${WEBSERVER} ];
+}
+
+NGINX_INIT() {
+  if [ ! ${PHPVERSION} = ${PHPVERSION_NEWEST} ];
   then
-    yum -y --enablerepo=epel --enablerepo=remi install \
-    ${WEBSERVER} \
-    mod_ssl \
-    ${PHPPKGNAME}-php \
-    ${PHPPKGNAME}-php-cli \
-    ${PHPPKGNAME}-php-pdo \
-    ${PHPPKGNAME}-php-pear \
-    ${PHPPKGNAME}-php-pecl-igbinary \
-    ${PHPPKGNAME}-php-pecl-jsonc \
-    ${PHPPKGNAME}-php-pecl-msgpack \
-    ${PHPPKGNAME}-php-process \
-    ${PHPPKGNAME}-php-common \
-    ${PHPPKGNAME}-php-fpm \
-    ${PHPPKGNAME}-php-gd \
-    ${PHPPKGNAME}-php-mbstring \
-    ${PHPPKGNAME}-php-mcrypt \
-    ${PHPPKGNAME}-php-mysqlnd \
-    ${PHPPKGNAME}-php-opcache \
-    ${PHPPKGNAME}-php-pecl-apcu \
-    ${PHPPKGNAME}-php-pecl-geoip \
-    ${PHPPKGNAME}-php-pecl-memcache \
-    ${PHPPKGNAME}-php-pecl-memcached \
-    ${PHPPKGNAME}-php-pecl-zip \
-    ${PHPPKGNAME}-php-xml \
-    ${PHPPKGNAME}-php-pecl-igbinary \
-    ${PHPPKGNAME}-php-pecl-jsonc \
-    ${PHPPKGNAME}-php-pecl-msgpack \
-    libmemcached-last \
-    libmemcached-last-libs \
-    libzip-last \
-    libevent
-
-    yum -y install \
-    ImageMagick-perl \
-    perl-Archive-Tar \
-    perl-Archive-Zip \
-    perl-Crypt-SSLeay \
-    perl-DBD-MySQL \
-    perl-DBI \
-    perl-Digest-SHA \
-    perl-GD \
-    perl-IO-Zlib \
-    perl-Package-Constants \
-    perl-Time-HiRes \
-    perl-XML-LibXML \
-    perl-XML-NamespaceSupport \
-    perl-XML-SAX \
-    perl-parent
-
-    yum --enablerepo=epel -y install perl-FCGI perl-Crypt-DSA perl-Cache-Cache
-    if [ ${OSVER} = 6 ];
-    then
-      yum --enablerepo=rpmforge -y install perl-XML-SAX-Expat perl-Imager
-    fi
-    if [ ${OSVER} = 7 ];
-    then
-      # perl-XML-SAX-Expat install
-      echo "perl-XML-SAX-Expat install"
-      yum -y install perl-ExtUtils-MakeMaker
-      mkdir -p ${HOME}/src
-      cd ${HOME}/src
-      PACKAGE_NAME=perl-XML-SAX-Expat
-      PACKAGE_URI=http://pkgs.repoforge.org/${PACKAGE_NAME}/
-      PACKAGE_FILE="$(
-      curl -s ${PACKAGE_URI} | \
-      egrep -i "(a href=\"${PACKAGE_NAME})" | \
-      awk '{print $6}' | \
-      sed -e "s/href=\"//g;s/\">/ /g" | \
-      awk '{print $1}' | \
-      egrep src.rpm | \
-      sort -n | \
-      tail -n 1
-       )"
-      curl -LO "http://pkgs.repoforge.org/${PACKAGE_NAME}/${PACKAGE_FILE}"
-      rpm -ivh ${PACKAGE_FILE}
-      cd ${HOME}/rpmbuild/SPECS
-      rpmbuild -ba ${PACKAGE_NAME}.spec
-      cd ${HOME}/rpmbuild/RPMS/
-      RPMFILE=$(find $(pwd) -name "${PACKAGE_NAME}*.rpm")
-      yum -y install ${RPMFILE}
-      cd
-      # perl-Imager install
-      echo "perl-Imager install"
-      yum -y install \
-      libpng-devel \
-      freetype-devel \
-      libungif-devel \
-      libtiff-devel \
-      libjpeg-devel \
-      perl-Test-Simple \
-      perl-CPAN
-      yes '' | cpan -i Imager
-      perl -MExtUtils::Installed -e '$i=ExtUtils::Installed->new;print "$_ ".$i->version($_)."\n" for $i->modules;'
-    fi
-
-    [ ${PHPPKGNAME} = php70 ] && PHPINI=/etc/opt/remi/${PHPPKGNAME}/php.ini || \
-    PHPINI=/opt/remi/${PHPPKGNAME}/root/etc/php.ini
-
-    cp -p ${PHPINI}{,.orig}
-    sed -i 's/\;date.timezone\ \=/\;#date.timezone\ \=\ndate.timezone\ \=\ Asia\/Tokyo/' ${PHPINI}
-
-    ln -s /opt/remi/${PHPPKGNAME}/root/usr/bin/php /usr/bin/php
-    ln -s ${PHPINI} /etc/php.ini
-    [ ${PHPPKGNAME} = php70 ] && ln -s /etc/opt/remi/${PHPPKGNAME}/pear /etc/pear || \
-    ln -s /opt/remi/${PHPPKGNAME}/root/etc/pear /etc/pear
-    [ ${PHPPKGNAME} = php70 ] && ln -s /etc/opt/remi/php70/php-fpm.d /etc/php-fpm.d || \
-    ln -s /opt/remi/${PHPPKGNAME}/root/etc/php-fpm.d /etc/php-fpm.d
-    [ ${PHPPKGNAME} = php70 ] && ln -s /etc/opt/remi/php70/php.d /etc/php.d || \
-    ln -s /opt/remi/${PHPPKGNAME}/root/etc/php.d /etc/php.d
-
+    chgrp -R ${WEBSERVER} /var/lib/php/
+  else
+    chgrp -R ${WEBSERVER} /var/opt/remi/${PHP_NEWEST_NUM}/lib/php/
   fi
-
-  if [ nginx = ${WEBSERVER} ];
-  then
-    yum -y --enablerepo=epel --enablerepo=remi install \
-    ${PHPPKGNAME}-php-cli \
-    ${PHPPKGNAME}-php-pdo \
-    ${PHPPKGNAME}-php-pear \
-    ${PHPPKGNAME}-php-pecl-igbinary \
-    ${PHPPKGNAME}-php-pecl-jsonc \
-    ${PHPPKGNAME}-php-pecl-msgpack \
-    ${PHPPKGNAME}-php-process \
-    ${PHPPKGNAME}-php-common \
-    ${PHPPKGNAME}-php-fpm \
-    ${PHPPKGNAME}-php-gd \
-    ${PHPPKGNAME}-php-mbstring \
-    ${PHPPKGNAME}-php-mcrypt \
-    ${PHPPKGNAME}-php-mysqlnd \
-    ${PHPPKGNAME}-php-opcache \
-    ${PHPPKGNAME}-php-pecl-apcu \
-    ${PHPPKGNAME}-php-pecl-geoip \
-    ${PHPPKGNAME}-php-pecl-memcache \
-    ${PHPPKGNAME}-php-pecl-memcached \
-    ${PHPPKGNAME}-php-pecl-zip \
-    ${PHPPKGNAME}-php-xml \
-    ${PHPPKGNAME}-php-pecl-igbinary \
-    ${PHPPKGNAME}-php-pecl-jsonc \
-    ${PHPPKGNAME}-php-pecl-msgpack \
-    libmemcached-last \
-    libmemcached-last-libs \
-    libzip-last \
-    libevent
-
-    yum -y install \
-    ImageMagick-perl \
-    perl-Archive-Tar \
-    perl-Archive-Zip \
-    perl-Crypt-SSLeay \
-    perl-DBD-MySQL \
-    perl-DBI \
-    perl-Digest-SHA \
-    perl-GD \
-    perl-IO-Zlib \
-    perl-Package-Constants \
-    perl-Time-HiRes \
-    perl-XML-LibXML \
-    perl-XML-NamespaceSupport \
-    perl-XML-SAX \
-    perl-parent
-
-    yum --enablerepo=epel -y install perl-FCGI perl-Crypt-DSA perl-Cache-Cache
-    if [ ${OSVER} = 6 ];
-    then
-      yum --enablerepo=rpmforge -y install perl-XML-SAX-Expat perl-Imager
-    fi
-    if [ ${OSVER} = 7 ];
-    then
-      # perl-XML-SAX-Expat install
-      echo "perl-XML-SAX-Expat install"
-      yum -y install perl-ExtUtils-MakeMaker
-      mkdir -p ${HOME}/src
-      cd ${HOME}/src
-      PACKAGE_NAME=perl-XML-SAX-Expat
-      PACKAGE_URI=http://pkgs.repoforge.org/${PACKAGE_NAME}/
-      PACKAGE_FILE="$(
-      curl -s ${PACKAGE_URI} | \
-      egrep -i "(a href=\"${PACKAGE_NAME})" | \
-      awk '{print $6}' | \
-      sed -e "s/href=\"//g;s/\">/ /g" | \
-      awk '{print $1}' | \
-      egrep src.rpm | \
-      sort -n | \
-      tail -n 1
-       )"
-      curl -LO "http://pkgs.repoforge.org/${PACKAGE_NAME}/${PACKAGE_FILE}"
-      rpm -ivh ${PACKAGE_FILE}
-      cd ${HOME}/rpmbuild/SPECS
-      rpmbuild -ba ${PACKAGE_NAME}.spec
-      cd ${HOME}/rpmbuild/RPMS/
-      RPMFILE=$(find $(pwd) -name "${PACKAGE_NAME}*.rpm")
-      yum -y install ${RPMFILE}
-      cd
-      # perl-Imager install
-      echo "perl-Imager install"
-      yum -y install \
-      libpng-devel \
-      freetype-devel \
-      libungif-devel \
-      libtiff-devel \
-      libjpeg-devel \
-      perl-Test-Simple \
-      perl-CPAN
-      yes '' | cpan -i Imager
-      perl -MExtUtils::Installed -e '$i=ExtUtils::Installed->new;print "$_ ".$i->version($_)."\n" for $i->modules;'
-    fi
-
-    [ ${PHPPKGNAME} = php70 ] && WWWCONF=/etc/opt/remi/${PHPPKGNAME}/php-fpm.d/www.conf || \
-    WWWCONF=/opt/remi/${PHPPKGNAME}/root/etc/php-fpm.d/www.conf
-    cp -p ${WWWCONF}{,.orig}
-    sed -i 's/^user\ \= apache/\;user\ \= apache\nuser\ \=\ nginx/' ${WWWCONF}
-    sed -i 's/^group\ \= apache/\;group\ \= apache\ngroup\ \=\ nginx/' ${WWWCONF}
-
-    [ ${PHPPKGNAME} = php70 ] && PHPINI=/etc/opt/remi/${PHPPKGNAME}/php.ini || \
-    PHPINI=/opt/remi/${PHPPKGNAME}/root/etc/php.ini
-
-    cp -p ${PHPINI}{,.orig}
-    sed -i 's/\;date.timezone\ \=/\;#date.timezone\ \=\ndate.timezone\ \=\ Asia\/Tokyo/' ${PHPINI}
-
-    ln -s /opt/remi/${PHPPKGNAME}/root/usr/bin/php /usr/bin/php
-    ln -s ${PHPINI} /etc/php.ini
-    [ ${PHPPKGNAME} = php70 ] && ln -s /etc/opt/remi/${PHPPKGNAME}/pear /etc/pear || \
-    ln -s /opt/remi/${PHPPKGNAME}/root/etc/pear /etc/pear
-    [ ${PHPPKGNAME} = php70 ] && ln -s /etc/opt/remi/php70/php-fpm.d /etc/php-fpm.d || \
-    ln -s /opt/remi/${PHPPKGNAME}/root/etc/php-fpm.d /etc/php-fpm.d
-    [ ${PHPPKGNAME} = php70 ] && ln -s /etc/opt/remi/php70/php.d /etc/php.d || \
-    ln -s /opt/remi/${PHPPKGNAME}/root/etc/php.d /etc/php.d
-
-  fi
-fi
-################################################################################
-
-################################################################################
-# nginx Install
-if [ nginx = ${WEBSERVER} ];
-then
-  yum -y install http://nginx.org/packages/centos/${OSVER}/noarch/RPMS/nginx-release-centos-${OSVER}-0.el${OSVER}.ngx.noarch.rpm
-  cp -p /etc/yum.repos.d/${WEBSERVER}.repo{,.orig}
-  sed -i 's/centos/mainline\/centos/' /etc/yum.repos.d/${WEBSERVER}.repo
-  yum -y install ${WEBSERVER}
-  sed -i.orig "s/worker_processes[[:space:]]\+[0-9]\+/worker_processes auto/" /etc/${WEBSERVER}/${WEBSERVER}.conf
-  if [ ${PHPREPO} = remi ];
-  then
-
-    [ ${PHPPKGNAME} = php70 ] && \
-    chgrp ${WEBSERVER} /var/opt/remi/${PHPPKGNAME}/lib/php/{opcache,session,wsdlcache} || \
-    chgrp ${WEBSERVER} /opt/remi/${PHPPKGNAME}/root/var/lib/php/{session,wsdlcache}
-  fi
-  echo "mkdir -p ${DROOTDIR}" | sh
-  chown -R ${WEBSERVER}:root ${DROOTDIR}
-  chmod -R g+w ${DROOTDIR}
   mkdir /etc/${WEBSERVER}/conf.d/BACKUP/
   mv /etc/${WEBSERVER}/conf.d/*.conf /etc/${WEBSERVER}/conf.d/BACKUP/
-cat << _EOL_ | tee ${VHOSTCONF}
-server {
-    listen       80 default_server;
-    server_name  ${NEWFQDN};
-    access_log  /var/log/${WEBSERVER}/${NEWFQDN}_access_log  main;
-    error_log  /var/log/${WEBSERVER}/${NEWFQDN}_error_log;
 
-    location / {
-        root   ${DROOTDIR};
-        index  index.php index.html index.htm;
+  NGINX_VHOSTCONF_CREATE
+  # WordPressをインストールする場合、バーチャルホストの設定ファイルを置換する
+  if [ ${ADMINUSER_VHOST_CMS_INSTALL} = on -a ${ADMINUSER_VHOST_CMS_TOOL} = wordpress ];
+  then
+    sed -i "s/##--@WORDPRESS@--##//g" ${VHOSTCONF}
+  fi
 
-        ## WordPressのパーマリンク設定をカスタム構造に ##
-        if (-f \$request_filename) {
-                expires 30d;
-        }
-        if (!-e \$request_filename) {
-                rewrite ^.+?(\$/wp-.*) \$1 last;
-                rewrite ^.+?(/.*\.php)\$ \$1 last;
-                rewrite ^ /index.php last;
-        }
-        ## ここまで ##
-    }
-
-    location ~ \.php\$ {
-        root   ${DROOTDIR};
-        fastcgi_pass   127.0.0.1:9000;
-        fastcgi_index  index.php;
-        fastcgi_param  SCRIPT_FILENAME  \$document_root/\$fastcgi_script_name;
-        client_max_body_size 256M;
-        include        fastcgi_params;
-    }
-
-    location ~ .pl$ {
-        gzip off;
-        root   ${DROOTDIR};
-        include /etc/nginx/fastcgi_params;
-        fastcgi_pass 127.0.0.1:8999;
-        fastcgi_index index.pl;
-        fastcgi_param SCRIPT_FILENAME \$document_root/\$fastcgi_script_name;
-    }
-
-    location ~ .cgi$ {
-        gzip off;
-        root   ${DROOTDIR};
-        include /etc/nginx/fastcgi_params;
-        fastcgi_pass 127.0.0.1:8999;
-        fastcgi_index index.cgi;
-        fastcgi_param SCRIPT_FILENAME \$document_root/\$fastcgi_script_name;
-    }
-
-    error_page  404              /404.html;
-    location = /404.html {
-        root   /usr/share/${WEBSERVER}/html;
-    }
-
-    error_page   500 502 503 504  /50x.html;
-    location = /50x.html {
-        root   /usr/share/${WEBSERVER}/html;
-    }
 }
 
-server {
-    listen       443 ssl;
-    server_name  ${NEWFQDN};
-    access_log  /var/log/${WEBSERVER}/${NEWFQDN}_access_log  main;
-    error_log  /var/log/${WEBSERVER}/${NEWFQDN}_error_log;
-
-    ssl_certificate             ${CERTDIR}/server.crt;
-    ssl_certificate_key         ${CERTDIR}/server.key;
-
-    ssl_session_timeout         5m;
-    ssl_protocols               TLSv1.2 TLSv1.1 TLSv1;
-    ssl_ciphers ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES256-GCM-SHA384:DHE-RSA-AES128-GCM-SHA256:DHE-DSS-AES128-GCM-SHA256:kEDH+AESGCM:ECDHE-RSA-AES128-SHA256:ECDHE-ECDSA-AES128-SHA256:ECDHE-RSA-AES128-SHA:ECDHE-ECDSA-AES128-SHA:ECDHE-RSA-AES256-SHA384:ECDHE-ECDSA-AES256-SHA384:ECDHE-RSA-AES256-SHA:ECDHE-ECDSA-AES256-SHA:DHE-RSA-AES128-SHA256:DHE-RSA-AES128-SHA:DHE-DSS-AES128-SHA256:DHE-RSA-AES256-SHA256:DHE-DSS-AES256-SHA:DHE-RSA-AES256-SHA:AES128-GCM-SHA256:AES256-GCM-SHA384:AES128-SHA256:AES256-SHA256:AES128-SHA:AES256-SHA:AES:CAMELLIA:DES-CBC3-SHA:!aNULL:!eNULL:!EXPORT:!DES:!RC4:!MD5:!PSK:!aECDH:!EDH-DSS-DES-CBC3-SHA:!EDH-RSA-DES-CBC3-SHA:!KRB5-DES-CBC3-SHA;
-    ssl_prefer_server_ciphers   on;
-
-    location / {
-        root   ${DROOTDIR};
-        index  index.php index.html index.htm;
-
-        ## WordPressのパーマリンク設定をカスタム構造に ##
-        if (-f \$request_filename) {
-                expires 30d;
-        }
-        if (!-e \$request_filename) {
-                rewrite ^.+?(\$/wp-.*) \$1 last;
-                rewrite ^.+?(/.*\.php)\$ \$1 last;
-                rewrite ^ /index.php last;
-        }
-        ## ここまで ##
-    }
-
-    location ~ \.php\$ {
-        root   ${DROOTDIR};
-        fastcgi_pass   127.0.0.1:9000;
-        fastcgi_index  index.php;
-        fastcgi_param  SCRIPT_FILENAME  \$document_root/\$fastcgi_script_name;
-        client_max_body_size 256M;
-        include        fastcgi_params;
-    }
-
-    location ~ .pl$ {
-        gzip off;
-        root   ${DROOTDIR};
-        include /etc/nginx/fastcgi_params;
-        fastcgi_pass 127.0.0.1:8999;
-        fastcgi_index index.pl;
-        fastcgi_param SCRIPT_FILENAME \$document_root/\$fastcgi_script_name;
-    }
-
-    location ~ .cgi$ {
-        gzip off;
-        root   ${DROOTDIR};
-        include /etc/nginx/fastcgi_params;
-        fastcgi_pass 127.0.0.1:8999;
-        fastcgi_index index.cgi;
-        fastcgi_param SCRIPT_FILENAME \$document_root/\$fastcgi_script_name;
-    }
-
-    error_page  404              /404.html;
-    location = /404.html {
-        root   /usr/share/${WEBSERVER}/html;
-    }
-
-    error_page   500 502 503 504  /50x.html;
-    location = /50x.html {
-        root   /usr/share/${WEBSERVER}/html;
-    }
+HTTPD_INSTALL() {
+  yum -y install httpd mod_ssl
 }
 
-_EOL_
+HTTPD_INIT() {
+  HTTPDCONF=/etc/${WEBSERVER}/conf/httpd.conf
+  SSLCONF=/etc/${WEBSERVER}/conf.d/ssl.conf 
+  mkdir -p /etc/${WEBSERVER}/conf{,.d}/BACKUP
 
-# Download fastcgi-wrapper.pl
-FCGIWRAPPERURI="http://www.linode.com/docs/assets/642-fastcgi-wrapper.sh"
-curl -L -o /usr/bin/fastcgi-wrapper.pl ${FCGIWRAPPERURI}
-chmod 700 /usr/bin/fastcgi-wrapper.pl
+  cp -p ${HTTPDCONF} $(dirname ${HTTPDCONF})/BACKUP/$(basename ${HTTPDCONF}).orig
+  echo -e "\n\nServerTokens\tProd\n\n" | tee -a ${HTTPDCONF}
+  echo -e "KeepAlive\ton\n\n" | tee -a ${HTTPDCONF}
+  sed -i "/DirectoryIndex[[:space:]]index.html/s/$/ index.cgi/" ${HTTPDCONF}
+  sed -i "/AddHandler[[:space:]]cgi-script/s/#//" ${HTTPDCONF}
+  sed -i "/^#ServerName/a ServerName ${NEWFQDN}:80" ${HTTPDCONF} # <- これがないと起動しない
 
-# Create perl-fastcgi initscript
-PERLFCGIDAEMON=/etc/rc.d/init.d/perl-fastcgi
-PERLFCGIDAEMONURI="http://www.linode.com/docs/assets/641-init-rpm.sh"
-curl -L -o ${PERLFCGIDAEMON} ${PERLFCGIDAEMONURI}
-sed -i '/^#[[:space:]][ndpc][gerio]*/d' ${PERLFCGIDAEMON}
-sed -i '2s/^#$/# perl-fastcgi/' ${PERLFCGIDAEMON}
-sed -i '3s/^#$/# description: this script starts and stops the perl-fastcgi daemon/' ${PERLFCGIDAEMON}
-sed -i "3a # chkconfig: - 85 15" ${PERLFCGIDAEMON}
-sed -i s/^nginx=[\"\/[:alnum:]]*/perlfastcgi='"\/usr\/bin\/fastcgi-wrapper.pl"'/ ${PERLFCGIDAEMON}
-sed -i 's/prog=\$(basename \$nginx)/prog=\$\(basename perl\)/' ${PERLFCGIDAEMON}
-sed -i s/^NGINX_[[:alnum:]_=\"\\./]*// ${PERLFCGIDAEMON}
-sed -i 's/lockfile=\/var\/lock\/subsys\/nginx/lockfile\=\/var\/lock\/subsys\/perl-fastcgi/' ${PERLFCGIDAEMON}
-sed -i 's/\[ -x $nginx ] || exit [0-9]/[ -x $perlfastcgi ] || exit 5/' ${PERLFCGIDAEMON}
-sed -i 's/\[ -f $NGINX_CONF_FILE ] || exit [0-9]//' ${PERLFCGIDAEMON}
-sed -i 's/daemon $nginx -c $NGINX_CONF_FILE/daemon $perlfastcgi/' ${PERLFCGIDAEMON}
-sed -i 's/configtest || return $?//g' ${PERLFCGIDAEMON}
-sed -i 's/killproc $nginx -HUP/stop ; start/' ${PERLFCGIDAEMON}
-sed -i '60,62d' ${PERLFCGIDAEMON}
-sed -i 's/restart|configtest/restart/' ${PERLFCGIDAEMON}
-sed -i "95s/|configtest//" ${PERLFCGIDAEMON}
+  SSLCONF_DELETE_STARTLINE=$(cat ${SSLCONF} | cat -n | egrep VirtualHost | head -n 1 | awk '{print $1}')
+  SSLCONF_DELETE_ENDLINE=$(cat ${SSLCONF} | cat -n | egrep VirtualHost | tail -n 1 | awk '{print $1}')
 
-chmod 700 ${PERLFCGIDAEMON}
-chkconfig --add perl-fastcgi
-chkconfig perl-fastcgi on
+  if [ ! ${PHPVERSION} = ${PHPVERSION_NEWEST} ];
+  then
+    PHP_CGI_PROG=/usr/bin/php-cgi
+  else
+    PHP_CGI_PROG=/opt/remi/${PHP_NEWEST_NUM}/root/usr/bin/php-cgi
+  fi
 
-fi
-################################################################################
-
-################################################################################
-# httpd Settings For CentOS6
-## Apache Configuration
-#if [ httpd = ${WEBSERVER} ];
-if [ ${OSVER} = 6 -a httpd = ${WEBSERVER} ];
-then
-HTTPDCONF=/etc/${WEBSERVER}/conf/httpd.conf
-cp -p ${HTTPDCONF} ${HTTPDCONF}.orig
-sed -i 's/^ServerTokens[[:space:]]*OS/ServerTokens Prod/' ${HTTPDCONF}
-sed -i 's/ServerSignature[[:space:]]*On/ServerSignature Off/' ${HTTPDCONF}
-sed -i '/#AddHandler cgi-script .cgi/s/#//' ${HTTPDCONF}
-echo "TraceEnable off" >> ${HTTPDCONF}
-
-HTTPDCONFLINE=$(wc -l ${HTTPDCONF} | awk '{print $1}')
-HTTPDCONFNUM=$(cat -n ${HTTPDCONF} | egrep -A ${HTTPDCONFLINE} '(<Directory[[:space:]]*"/var/www/html">)' | \
-egrep -m 1 -B ${HTTPDCONFLINE} '(</Directory>)' | egrep '(Options)' | egrep -v "#" | awk '{print $1}')
-sed -i "${HTTPDCONFNUM}s/Options[[:space:][:alnum:]]*/Options None/" ${HTTPDCONF}
-
-[ ! -d /etc/${WEBSERVER}/conf.d/BACKUP ] && mkdir -p /etc/${WEBSERVER}/conf.d/BACKUP
-mv /etc/${WEBSERVER}/conf.d/welcome.conf /etc/${WEBSERVER}/conf.d/BACKUP/
-
-# Logrotate Configure
-mkdir -p /etc/logrotate.d/BACKUP
-cp -p /etc/logrotate.d/${WEBSERVER} /etc/logrotate.d/BACKUP/${WEBSERVER}.orig
-
-[ -f /etc/${WEBSERVER}/conf.d/ssl.conf ] && \
-mv /etc/${WEBSERVER}/conf.d/ssl.conf /etc/${WEBSERVER}/conf.d/BACKUP/
+  # suexec用のPHPラッパーを生成する
+  SUEXEC_PHP_WRAPDIR=/var/www/users_bin/${ADMINUSERNAME}
+  SUEXEC_PHP_WRAPPER=${SUEXEC_PHP_WRAPDIR}/php-cgi
+  mkdir -p ${SUEXEC_PHP_WRAPDIR}
+  echo -e "#\!/bin/bash\nexec ${PHP_CGI_PROG} -c /home/${ADMINUSERNAME}/etc/php.ini" | \
+    sed -e "s/\\\//"                                                                 | \
+    tee ${SUEXEC_PHP_WRAPPER}
+  chmod -R 755 ${SUEXEC_PHP_WRAPDIR}
+  chown -R ${ADMINUSERNAME}. ${SUEXEC_PHP_WRAPDIR}
 
 cat << _EOL_ | tee ${VHOSTCONF}
-LoadModule ssl_module modules/mod_ssl.so
-Listen 443
-SSLPassPhraseDialog  builtin
-SSLSessionCache         shmcb:/var/cache/mod_ssl/scache(512000)
-SSLSessionCacheTimeout  300
-SSLMutex default
-SSLRandomSeed startup file:/dev/urandom  256
-SSLRandomSeed connect builtin
-SSLCryptoDevice builtin
+SuexecUserGroup ${ADMINUSERNAME} ${ADMINGROUPNAME}
+
+$(cat ${SSLCONF} | sed -e "${SSLCONF_DELETE_STARTLINE},${SSLCONF_DELETE_ENDLINE}d" | egrep -v "(^#)" | egrep .)
 
 <VirtualHost ${IPADDR}:80>
-    ServerAdmin webmaster@${NEWFQDN}
-    DocumentRoot ${DROOTDIR}
-    ServerName ${NEWFQDN}
-    ErrorLog /var/log/${WEBSERVER}/${NEWFQDN}_error_log
-    CustomLog /var/log/${WEBSERVER}/${NEWFQDN}_access_log combined
-    <Directory ${DROOTDIR}>
-      Options FollowSymLinks ExecCGI Includes
-      AllowOverride AuthConfig FileInfo Indexes Limit
-      Order allow,deny
-      Allow from all
-    </Directory>
+  DocumentRoot ${DROOTDIR}
+  ServerName ${NEWFQDN}
+
+  ErrorLog ${ERRORLOG}
+  CustomLog ${ACCESSLOG} combined
+
+  <Directory ${DROOTDIR}>
+    # .htaccess setting
+    AllowOverride AuthConfig FileInfo Indexes Limit
+    Options FollowSymLinks ExecCGI Includes
+    AddHandler fcgid-script .php
+    FCGIWrapper ${SUEXEC_PHP_WRAPPER} .php
+    DirectoryIndex index.html index.htm index.html.var index.php index.cgi
+
+    Order Deny,Allow
+    Allow from all
+    Require all granted
+  </Directory>
+
+  <Files ~ "^\.">
+    # Deny from all
+    Require all denied
+  </Files>
+
+  <Files ~ ".*conf.*">
+    # config.inc.php
+    # Deny from all
+    Require all denied
+  </Files>
 </VirtualHost>
 
 <VirtualHost ${IPADDR}:443>
-    ServerAdmin webmaster@${NEWFQDN}
-    DocumentRoot ${DROOTDIR}
-    ServerName ${NEWFQDN}
-    ErrorLog /var/log/${WEBSERVER}/${NEWFQDN}_error_log
-    CustomLog /var/log/${WEBSERVER}/${NEWFQDN}_access_log combined
-    SSLEngine on
-    SSLProtocol all -SSLv2
-    SSLCipherSuite DEFAULT:!EXP:!SSLv2:!DES:!IDEA:!SEED:+3DES
-    SSLCertificateFile ${CERTDIR}/server.crt
-    SSLCertificateKeyFile ${CERTDIR}/server.key
-    <Directory ${DROOTDIR}>
-      Options FollowSymLinks ExecCGI Includes
-      AllowOverride AuthConfig FileInfo Indexes Limit
-      Order allow,deny
-      Allow from all
-    </Directory>
-    <Files ~ "\.(cgi|shtml|phtml|php3?)$">
-        SSLOptions +StdEnvVars
-    </Files>
-    SetEnvIf User-Agent ".*MSIE.*" \\
-             nokeepalive ssl-unclean-shutdown \\
-             downgrade-1.0 force-response-1.0
-    CustomLog /var/log/${WEBSERVER}/${NEWFQDN}_access_log \\
-              "%t %h %{SSL_PROTOCOL}x %{SSL_CIPHER}x \\"%r\\" %b"
-</VirtualHost>
+  SSLEngine on
+  SSLProtocol all -SSLv2
+  SSLCipherSuite HIGH:MEDIUM:!aNULL:!MD5:!SEED:!IDEA
+  SSLCertificateFile ${CERTDIR}/server.crt
+  SSLCertificateKeyFile ${CERTDIR}/server.key
 
-_EOL_
-fi
-################################################################################
+  DocumentRoot ${DROOTDIR}
+  ServerName ${NEWFQDN}
 
-################################################################################
-if [ ${OSVER} = 7 -a httpd = ${WEBSERVER} ];
-then
-HTTPDCONF=/etc/${WEBSERVER}/conf/httpd.conf
-HTTPDCONFLINE=$(wc -l ${HTTPDCONF} | awk '{print $1}')
-cp -p ${HTTPDCONF} ${HTTPDCONF}.orig
-sed -i '/^DocumentRoot/s/^/##--@DISABLED@--##/' ${HTTPDCONF}
-sed -i '/#AddHandler cgi-script .cgi/s/#//' ${HTTPDCONF}
-sed -i '/^[[:space:]]*ScriptAlias/s/^/##--@DISABLED@--##/' ${HTTPDCONF}
+  ErrorLog ${ERRORLOG}
+  CustomLog ${ACCESSLOG} combined
 
-DISABLEDIR[0]=/var/www/html
-DISABLEDIR[1]=/var/www/cgi-bin
+  <Directory ${DROOTDIR}>
+    # .htaccess setting
+    AllowOverride AuthConfig FileInfo Indexes Limit
+    Options FollowSymLinks ExecCGI Includes
+    AddHandler fcgid-script .php
+    FCGIWrapper ${SUEXEC_PHP_WRAPPER} .php
+    DirectoryIndex index.html index.htm index.html.var index.php index.cgi
 
-for DISABLEDIRS in ${DISABLEDIR[@]}
-do
-  for DISABLEDIRNUM in \
-  $(cat -n ${HTTPDCONF} | \
-  egrep -A ${HTTPDCONFLINE} \
-  "(<Directory[[:space:]]*\"${DISABLEDIRS}\">)" | \
-  egrep -m 1 -B ${HTTPDCONFLINE} "(</Directory>)" | \
-  awk '{print $1}')
-  do
-    sed -i "${DISABLEDIRNUM}s/^/##--@DISABLED@--##/" ${HTTPDCONF}
-  done
-done
+    Order Deny,Allow
+    Allow from all
+    Require all granted
+  </Directory>
 
-cd /etc/${WEBSERVER}/conf.d
-mkdir -p BACKUP
-DISABLECONF=()
-DISABLECONF=("
-auth_mellon.conf
-authnz_pam.conf
-autoindex.conf
-fcgid.conf
-intercept_form_submit.conf
-lookup_identity.conf
-manual.conf
-mod_security.conf
-revocator.conf
-ssl.conf
-userdir.conf
-welcome.conf
-")
-for DISABLECONFFILE in ${DISABLECONF}
-do
-[ -f ${DISABLECONFFILE} ] && mv ${DISABLECONFFILE} BACKUP/
-done
+  <Files ~ "^\.">
+    # Deny from all
+    Require all denied
+  </Files>
 
-cd /etc/${WEBSERVER}/conf.modules.d
-mkdir -p BACKUP
-for DISABLEMODFILE in $(ls | egrep -v "(BACKUP|00-base.conf|00-mpm.conf|00-ssl.conf|00-systemd.conf|01-cgi.conf|01-session.conf|1[0-9]-php*)")
-do
-  mv ${DISABLEMODFILE} BACKUP/
-done
+  <Files ~ ".*conf.*">
+    # config.inc.php
+    # Deny from all
+    Require all denied
+  </Files>
 
-cat << _EOL_ | tee ${VHOSTCONF}
-Listen 443 https
-SSLPassPhraseDialog exec:/usr/libexec/httpd-ssl-pass-dialog
-SSLSessionCache         shmcb:/run/httpd/sslcache(512000)
-SSLSessionCacheTimeout  300
-SSLRandomSeed startup file:/dev/urandom  256
-SSLRandomSeed connect builtin
-SSLCryptoDevice builtin
-
-<VirtualHost ${IPADDR}:80>
-ServerAdmin webmaster@${NEWFQDN}
-DocumentRoot ${DROOTDIR}
-ErrorLog /var/log/${WEBSERVER}/${NEWFQDN}_error_log
-CustomLog /var/log/${WEBSERVER}/${NEWFQDN}_access_log combined
-    <Directory ${DROOTDIR}>
-      Options FollowSymLinks ExecCGI Includes
-      AllowOverride AuthConfig FileInfo Indexes Limit
-      Order allow,deny
-      Allow from all
-    </Directory>
-</VirtualHost>                                  
-
-<VirtualHost ${IPADDR}:443>
-ServerAdmin webmaster@${NEWFQDN}
-DocumentRoot ${DROOTDIR}
-ErrorLog /var/log/${WEBSERVER}/${NEWFQDN}_error_log
-CustomLog /var/log/${WEBSERVER}/${NEWFQDN}_access_log combined
-LogLevel warn
-SSLEngine on
-SSLProtocol all -SSLv2
-SSLCipherSuite HIGH:MEDIUM:!aNULL:!MD5
-SSLCertificateFile /etc/httpd/CERTS/${NEWFQDN}/2015/server.crt
-SSLCertificateKeyFile /etc/httpd/CERTS/${NEWFQDN}/2015/server.key
-<Files ~ "\.(cgi|shtml|phtml|php3?)$">
+  <Files ~ "\.(cgi|shtml|phtml|php3?)$">
     SSLOptions +StdEnvVars
-</Files>
-    <Directory ${DROOTDIR}>
-      Options FollowSymLinks ExecCGI Includes
-      AllowOverride AuthConfig FileInfo Indexes Limit
-      Order allow,deny
-      Allow from all
-    </Directory>
-BrowserMatch "MSIE [2-5]" \
+  </Files>
+
+  BrowserMatch "MSIE [2-5]" \
          nokeepalive ssl-unclean-shutdown \
          downgrade-1.0 force-response-1.0
-CustomLog logs/ssl_request_log \
+  CustomLog ${ACCESSLOG} \
           "%t %h %{SSL_PROTOCOL}x %{SSL_CIPHER}x \"%r\" %b"
 </VirtualHost>
+
 _EOL_
-cd
-fi
-################################################################################
 
-chmod 755 /var/log/${WEBSERVER}
+  mv /etc/${WEBSERVER}/conf.d/welcome.conf /etc/${WEBSERVER}/conf.d/BACKUP/
+  mv ${SSLCONF} /etc/${WEBSERVER}/conf.d/BACKUP/
+  chmod 755 /var/log/${WEBSERVER}
 
-################################################################################
-# Groups Add
-[ httpd = ${WEBSERVER} ] && WEBSERVERUSER=apache
-[ httpd = ${WEBSERVER} ] && WEBSERVERGROUP=apache
-[ nginx = ${WEBSERVER} ] && WEBSERVERUSER=nginx
-[ nginx = ${WEBSERVER} ] && WEBSERVERGROUP=nginx
+}
 
-USERSTATS=$(cat /etc/passwd | grep ${WEBSERVERUSER} > /dev/null ; echo $?)
-GROUPSTATS=$(cat /etc/group | grep ${WEBSERVERGROUP} > /dev/null ; echo $?)
+LOGROTATION_SETTING() {
+  # 2016/06/25 nginxでもhttpdでも以下正規表現で置換できることを確認済
+  mkdir -p /etc/logrotate.d/BACKUP
+  cp -p /etc/logrotate.d/${WEBSERVER} /etc/logrotate.d/BACKUP/${WEBSERVER}.orig
+  SED_VHOSTLOGDIR=$(echo ${VHOSTLOGDIR} | sed -e "s/\//\\\\\//g")
+  sed -i "s/{/${SED_VHOSTLOGDIR}\/\*\/access_log ${SED_VHOSTLOGDIR}\/\*\/error_log {/" /etc/logrotate.d/${WEBSERVER}
+}
 
-if [ 0 = ${USERSTATS} -a 0 = ${GROUPSTATS} ];
-then
-for U in ${ADDUSERNAME[@]} ${WEBSERVERUSER}
-do
-  for G in ${ADDGROUPNAME[@]} ${WEBSERVERGROUP}
-  do
-    gpasswd -a ${U} ${G}
-  done
-done
-fi
-chown ${WEBSERVERUSER}:${WEBSERVERGROUP} ${DROOTDIR}
-chmod 775 ${DROOTDIR}
-################################################################################
-
-################################################################################
-# daemons start
-if [ nginx = ${WEBSERVER} ];
-then
-if [ ${PHPREPO} = remi ];
-then
-[ ${OSVER} = 6 ] && service ${PHPPKGNAME}-php-fpm start
-[ ${OSVER} = 6 ] && chkconfig ${PHPPKGNAME}-php-fpm on
-[ ${OSVER} = 7 ] && systemctl start ${PHPPKGNAME}-php-fpm.service
-[ ${OSVER} = 7 ] && systemctl enable ${PHPPKGNAME}-php-fpm.service
-else
-[ ${OSVER} = 6 ] && service php-fpm start
-[ ${OSVER} = 6 ] && chkconfig php-fpm on
-[ ${OSVER} = 7 ] && systemctl start php-fpm.service
-[ ${OSVER} = 7 ] && systemctl enable php-fpm.service
-fi
-fi
-[ ${OSVER} = 6 ] && service ${WEBSERVER} start
-[ ${OSVER} = 6 ] && chkconfig ${WEBSERVER} on
-[ ${OSVER} = 7 ] && systemctl start ${WEBSERVER}.service
-[ ${OSVER} = 7 ] && systemctl enable ${WEBSERVER}.service
-################################################################################
-
-################################################################################
-# Generate the parameters of the DB
-if [ ${MYSQLROLE} = server ];
-then
-NUM=$(expr $(mysql -N -s -e "SHOW DATABASES;" | egrep -v '^([[:alnum:]]*_schema|binlog|mysql)$' | wc -l) + 1)
-[ ${#DBUSER} = 0 ] && DBUSER=$(printf "dbuser%04d" ${NUM})
-[ ${#DBNAME} = 0 ] && DBNAME=$(printf "db%04d" ${NUM})
-fi
-################################################################################
-
-################################################################################
-# DB and USER CREATE
-if [ ${MYSQLROLE} = server ];
-then
-  for DBLIST in ${DBNAME}
-  do
-  if [ 0 = $(echo ${DBLIST} | egrep "-" > /dev/null ; echo $?) ];
+DAEMON_ENABLE_COMMANDS() {
+  systemctl enable ${WEBSERVER}
+  if [ ${WEBSERVER} = nginx ];
   then
-    mysql -e "CREATE DATABASE \`${DBLIST}\` DEFAULT CHARACTER SET ${DBCHARSET};"
-    mysql -e "GRANT ALL PRIVILEGES ON \`${DBLIST}\`.* TO ${DBUSER}@${DBHOST} IDENTIFIED BY \"${DBUSERPW}\";"
-  else
-    mysql -e "CREATE DATABASE ${DBLIST} DEFAULT CHARACTER SET ${DBCHARSET};"
-    mysql -e "GRANT ALL PRIVILEGES ON ${DBLIST}.* TO ${DBUSER}@${DBHOST} IDENTIFIED BY \"${DBUSERPW}\";"
+    if [ ! ${PHPVERSION} = ${PHPVERSION_NEWEST} ];
+    then
+      systemctl enable php-fpm spawn-fcgi
+    else
+      systemctl enable ${PHP_NEWEST_NUM}-php-fpm spawn-fcgi
+    fi
   fi
+}
+
+WEBSERVER_COMMON_INIT() {
+  LOGROTATION_SETTING
+  DAEMON_ENABLE_COMMANDS
+}
+
+WORDPRESS_INSTALL() {
+  # wp-cli Download
+  mkdir -p /home/${ADMINUSERNAME}/bin
+  curl -o /home/${ADMINUSERNAME}/bin/wp ${WPCLI_DOWNLOADURI}
+  chmod 755 /home/${ADMINUSERNAME}/bin/wp
+
+  WP_DEFINE_FSMETHOD_WORD="define('FS_METHOD', 'direct');"
+
+  WP_DROOT=/home/${ADMINUSERNAME}/${ADMINUSER_VHOST}/public_html
+  WP_CONFIG=${WP_DROOT}/wp-config.php
+  WPCLI=/home/${ADMINUSERNAME}/bin/wp
+
+  ${WPCLI}                               \
+    --allow-root                         \
+    core                                 \
+    download                             \
+    --path=${WP_DROOT}                   \
+    --locale=${WPLOCALE}
+
+  ${WPCLI}                               \
+    --allow-root                         \
+    core                                 \
+    config                               \
+    --path=${WP_DROOT}                   \
+    --dbname=${MYSQLDBNAME}              \
+    --dbuser=${DBUSERNAME}               \
+    --dbpass=${DBUSERPASS}               \
+    --dbhost=${MYSQLSERVER_ADDRESS}
+
+  [ ! -f ${WP_CONFIG}.ORIG ] && sed -i.ORIG "/^<?php/a ${WP_DEFINE_FSMETHOD_WORD}" ${WP_CONFIG}
+
+  ${WPCLI}                               \
+    --allow-root                         \
+    core                                 \
+    install                              \
+    --path=${WP_DROOT}                   \
+    --url=http://${ADMINUSER_VHOST}      \
+    --title="${WP_SITETITLE}"            \
+    --admin_user=${WP_ADMINUSERNAME}     \
+    --admin_password=${WP_ADMINPASS}     \
+    --admin_email=${WP_ADMINMAILADDRESS}
+
+  chown -R ${ADMINUSERNAME}. /home/${ADMINUSERNAME}
+
+  # ruby development environment Install
+  yum -y install   \
+    byacc          \
+    gdbm-devel     \
+    libffi-devel   \
+    ncurses-devel  \
+    tcl            \
+    tcl-devel      \
+    zlib-devel
+
+  echo '%_topdir %(echo $HOME)/rpmbuild' > /root/.rpmmacros
+  mkdir -p /root/rpmbuild/{SPECS,SOURCES,BUILD,BUILDROOT,RPMS,SRPMS}
+
+  mkdir -p /root/bin
+  curl -o /root/bin/RUBYGETTER ${RUBYGETTERURI}
+  chmod -R 700 /root/bin
+  RUBYGETTER
+
+  cp -p $(ls /root/src/ruby*) /root/rpmbuild/SOURCES/
+
+  RUBYFULLVERSION=$(ls /root/src/ | grep ruby | sed -e "s/^ruby-//;s/.tar.gz//")
+  RUBYABI=$(ls /root/src/ | grep ruby | sed -e "s/^ruby-//;s/.tar.gz//;s/.[0-9]*$//")
+  RUBYRELEASE=2
+  RUBYSPECFILE=/root/rpmbuild/SPECS/ruby.spec
+
+  curl -o ${RUBYSPECFILE} ${RUBYSPECURI}
+
+  cp -p ${RUBYSPECFILE}{,.orig}
+  #sed -i "/^%define rubyver/s/[0-9.]*$/${RUBYFULLVERSION}/" ${RUBYSPECFILE}
+  sed -i "/^%define[[:space:]]rubyver/s/[0-9.]*$/${RUBYFULLVERSION}/" ${RUBYSPECFILE}
+  #sed -i "/^%define rubyabi/s/[0-9.]*$/${RUBYABI}/" ${RUBYSPECFILE}
+  sed -i "/^%define[[:space:]]rubyabi/s/[0-9.]*$/${RUBYABI}/" ${RUBYSPECFILE}
+  sed -i "s/db4-devel//g" ${RUBYSPECFILE}
+
+  rpmbuild -bb ${RUBYSPECFILE}
+  RUBYRPM=/root/rpmbuild/RPMS/$(uname -m)/ruby-${RUBYFULLVERSION}-${RUBYRELEASE}.el7.centos.$(uname -m).rpm
+
+  yum -y localinstall ${RUBYRPM}
+
+  # wordmove install
+  gem install wordmove
+  wordmove init
+  cp -p Movefile{,.orig}
+  sed -i "s/vhost.local/${NEWFQDN}/" Movefile
+  sed -i "s/\/root/\/home\/${ADMINUSERNAME}\/${NEWFQDN}\/public_html/" Movefile
+  sed -i "/local:/,/staging:/s/database_name/${MYSQLDBNAME}/" Movefile
+  sed -i "/local:/,/staging:/s/\"user\"/\"${DBUSERNAME}\"/" Movefile
+  sed -i "/local:/,/staging:/s/\"password\"/\"${DBUSERPASS}\"/" Movefile
+  sed -i "/local:/,/staging:/s/127.0.0.1/localhost/" Movefile
+
+  chown -R ${ADMINUSERNAME}.        ${ADMINUSER_VHOSTDIR} /home/${ADMINUSERNAME}
+
+}
+
+CMS_INSTALL() {
+  ALLOW_CMS_INSTALL_LIST=(
+    wordpress
+  )
+
+  CMS_INSTALL_ALLOW_FLAG=$(
+                           echo ${ALLOW_CMS_INSTALL_LIST[@]} | \
+                           sed -e "s/[[:space:]]/\|/g;s/^/echo ${ADMINUSER_VHOST_CMS_TOOL} \| egrep \"\^\(/;s/$/\)\$\"/" | \
+                           sh > /dev/null ; echo $?
+                           )
+
+  if [ ${CMS_INSTALL_ALLOW_FLAG} = 0 ];
+  then
+    if [ ${ADMINUSER_VHOST_CMS_TOOL} = wordpress ];
+    then
+      WORDPRESS_INSTALL
+    fi
+  fi
+}
+
+FIREWALLD_SETTINGS() {
+  FIREWALLD_ZONENAME=public
+  if [ 3 = $(systemctl status firewalld.service > /dev/null ; echo $?) ];
+  then
+    systemctl start firewalld.service
+  else
+    :
+  fi
+  systemctl enable firewalld.service
+  firewall-cmd --zone=${FIREWALLD_ZONENAME} --add-service http
+  firewall-cmd --zone=${FIREWALLD_ZONENAME} --add-service http  --permanent
+  firewall-cmd --zone=${FIREWALLD_ZONENAME} --add-service https
+  firewall-cmd --zone=${FIREWALLD_ZONENAME} --add-service https --permanent
+  firewall-cmd --zone=${FIREWALLD_ZONENAME} --add-service smtp
+  firewall-cmd --zone=${FIREWALLD_ZONENAME} --add-service smtp  --permanent
+  # SSH待ち受けポートを22から変更した場合の穴開けを行う。IPアドレス制限はない。
+  [ ! 22 = ${SSHPORT} ] && \
+    firewall-cmd --zone=public --add-port=${SSHPORT}/tcp
+  [ ! 22 = ${SSHPORT} ] && \
+    firewall-cmd --zone=public --add-port=${SSHPORT}/tcp --permanent
+  # 信頼するネットワーク(配列TRUSTSUBNETに格納した値)からのみSSH接続(TCP22)を受け付ける
+  for SUBNETS in ${TRUSTSUBNET[@]}
+  do
+    firewall-cmd --direct             \
+      --add-rule ipv4                 \
+      filter INPUT 1 -m conntrack --ctstate NEW -m tcp -p tcp --dport 22 -s ${SUBNETS} -j ACCEPT
+    firewall-cmd --permanent --direct \
+      --add-rule ipv4                 \
+      filter INPUT 1 -m conntrack --ctstate NEW -m tcp -p tcp --dport 22 -s ${SUBNETS} -j ACCEPT
   done
-fi
-################################################################################
+}
 
-################################################################################
-# munin-node install
-yum -y --enablerepo=epel install munin-node
-#
-sed -i.orig "/allow \\^::1\\$/a\cidr_allow ${MUNINIPADDR}\/${MUNINSUBNET}" /etc/munin/munin-node.conf
-#
-if [ ${MYSQLROLE} = server ];
+WEBSERVER_INSTALL_AND_INIT(){
+  if [ ${WEBSERVER} = nginx ];
+  then
+    NGINX_INSTALL
+    NGINX_INIT
+  fi
+  if [ ${WEBSERVER} = httpd ];
+  then
+    HTTPD_INSTALL
+    HTTPD_INIT
+  fi
+  PHP_INIT # WEBサーバーインストールの後に実行すること
+  WEBSERVER_COMMON_INIT
+}
+
+# 関数実行
+exec >> ${LOGFILE}
+exec 2>&1
+ENV_CHECK
+SELINUX_SETTING
+YUM_REPOS_INSTALL
+USEFUL_TOOLS_INSTALL
+ADMINUSER_CREATE
+INIT_SSH
+MYSQL_INSTALL
+MYSQL_INIT
+PHPVER_SELECT
+PHP_AND_PERL_INSTALL
+OPENSSL_CERTGEN
+WEBSERVER_INSTALL_AND_INIT
+FIREWALLD_SETTINGS
+
+ADMINUSER_VHOST_CMS_INSTALL_FLAG=$(echo ${ADMINUSER_VHOST_CMS_INSTALL} | egrep -i "(yes|on|0|enable)" > /dev/null ; echo $?)
+if [ ${ADMINUSER_VHOST_CMS_INSTALL_FLAG} = 0 ];
 then
-  mkdir -p /usr/share/munin/plugins/BACKUP/
-  cp -p /usr/share/munin/plugins/mysql_ /usr/share/munin/plugins/BACKUP/mysql_.ORIG
-  curl -Lo /usr/share/munin/plugins/mysql_ https://raw.githubusercontent.com/nullpopopo/ichigeki/master/munin-plugins/mysql_
-  chmod 755 /usr/share/munin/plugins/mysql_
+  CMS_INSTALL
 fi
-cd /etc/munin/plugins
-rm -f selinux_avcstat
-if [ ${MYSQLROLE} = server ];
-then
-ln -s /usr/share/munin/plugins/mysql_ mysql_bin_relay_log
-ln -s /usr/share/munin/plugins/mysql_ mysql_commands
-ln -s /usr/share/munin/plugins/mysql_ mysql_connections
-ln -s /usr/share/munin/plugins/mysql_ mysql_files_tables
-ln -s /usr/share/munin/plugins/mysql_ mysql_innodb_bpool
-ln -s /usr/share/munin/plugins/mysql_ mysql_innodb_bpool_act
-ln -s /usr/share/munin/plugins/mysql_ mysql_innodb_insert_buf
-ln -s /usr/share/munin/plugins/mysql_ mysql_innodb_io
-ln -s /usr/share/munin/plugins/mysql_ mysql_innodb_io_pend
-ln -s /usr/share/munin/plugins/mysql_ mysql_innodb_log
-ln -s /usr/share/munin/plugins/mysql_ mysql_innodb_rows
-ln -s /usr/share/munin/plugins/mysql_ mysql_innodb_semaphores
-ln -s /usr/share/munin/plugins/mysql_ mysql_innodb_tnx
-ln -s /usr/share/munin/plugins/mysql_ mysql_myisam_indexes
-ln -s /usr/share/munin/plugins/mysql_ mysql_network_traffic
-ln -s /usr/share/munin/plugins/mysql_ mysql_qcache
-ln -s /usr/share/munin/plugins/mysql_ mysql_qcache_mem
-ln -s /usr/share/munin/plugins/mysql_ mysql_replication
-ln -s /usr/share/munin/plugins/mysql_ mysql_select_types
-ln -s /usr/share/munin/plugins/mysql_ mysql_slow
-ln -s /usr/share/munin/plugins/mysql_ mysql_sorts
-ln -s /usr/share/munin/plugins/mysql_ mysql_table_locks
-ln -s /usr/share/munin/plugins/mysql_ mysql_tmp_tables
-mysql -e "CREATE DATABASE munin;"
-mysql -e "GRANT ALL PRIVILEGES ON munin.* TO munin@127.0.0.1 IDENTIFIED BY \"${MUNINDBUSERPW}\";"
-
-for GRANTS in $(mysql -N -s -e "select user,host from mysql.user;" | awk '{print $1"@"$2}' | grep -v @% | sed -e "s/@172.16.%//g;s/::1/\"::1\"/g")
-do
-echo ${GRANTS} ; mysql -N -e "SHOW GRANTS FOR ${GRANTS}\G"; echo
-done | egrep '(^[[:alnum:]]|^$)'
-echo ""
-
-cp -p /etc/munin/plugin-conf.d/munin-node{,.orig}
-cat << _EOL_ | tee -a /etc/munin/plugin-conf.d/munin-node
-
-[mysql*]
-env.mysqladmin /usr/bin/mysqladmin
-env.mysqlopts -u munin -p${MUNINDBUSERPW} -h 127.0.0.1 --port=3306
-env.mysqlconnection DBI:mysql:mysql;host=127.0.0.1;port=3306
-env.mysqluser munin
-env.mysqlpassword ${MUNINDBUSERPW}
-_EOL_
-
-mysql -e "GRANT SELECT ON mysql.* TO munin@127.0.0.1;"
-mysql -e "GRANT SUPER,PROCESS ON *.* TO munin@127.0.0.1;"
-mysql -e "FLUSH PRIVILEGES;"
-mysql -e "SHOW GRANTS FOR munin@127.0.0.1;"
-fi
-[ ${OSVER} = 6 ] && chkconfig munin-node on
-[ ${OSVER} = 7 ] && systemctl enable munin-node.service
-################################################################################
-
-#
-date
-#
-
-[ ${OSVER} = 6 ] && reboot
-[ ${OSVER} = 7 ] && systemctl reboot
+systemctl reboot
