@@ -224,6 +224,7 @@ fi
 
 # ファイル暗号化およびSSH公開鍵認証設定の処理を行う処理を関数「ENC_PROC」にまとめる
 ENC_PROC() {
+  yum -y install openssl
   if [ ! -f ${SECRETKEY} ];
   then
     # ${HOME}/.ssh ディレクトリ作成
@@ -1131,7 +1132,6 @@ PHP_INIT() {
 }
 
 OPENSSL_CERTGEN() {
-  yum -y install openssl
   CERTDIR=/etc/${WEBSERVER}/CERTS/${NEWFQDN}/${YEAR}
   KEYFILE=${CERTDIR}/server.key
   CSRFILE=${CERTDIR}/server.csr
