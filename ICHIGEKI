@@ -116,7 +116,12 @@ then
   yum -y install ${DIG_RPM_PACKAGE}
 fi
 PTS0HOST=$(who | egrep pts/0 | sed -e "s/[\(\)]//g" | awk '{print $NF}')
-PTS0IPADDR=$(dig ${PTS0HOST} | egrep ^${PTS0HOST} | awk '{print $NF}')
+if [ ! 0 = $(echo ${PTS0HOST} | | egrep '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$') ];
+then
+  PTS0IPADDR=$(dig ${PTS0HOST} | egrep ^${PTS0HOST} | awk '{print $NF}')
+else
+  PTS0IPADDR=${PTS0HOST}
+fi
 
 set +eu
 if [ ${#TRUSTSUBNET[@]} = 0 ];
