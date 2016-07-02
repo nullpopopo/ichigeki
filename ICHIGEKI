@@ -108,13 +108,20 @@ PHP_TZ_REGION=Asia
 PHP_TZ_CITY=Tokyo
 
 # 配列 TRUSTSUBNET が空だったら現在接続中のIPアドレス (/32) をTRUSTSUBNET配列に追加する
+# 2016/07/03 ICHIGEKI実行時、SSH接続元ホストの名前解決が行われている場合にエラーとなるバグを修正。PTS/0 のIPアドレスを追加するようにした。
+DIG_RPM_PACKAGE=bind-utils
+DIGINSTALLED_STAT=$(yum list installed ${DIG_RPM_PACKAGE} > /dev/null ; echo $?)
+if [ ! ${DIGINSTALLED_STAT} = 0 ];
+then
+  yum -y install ${DIG_RPM_PACKAGE}
+fi
+PTS0HOST=$(who | egrep pts/0 | sed -e "s/[\(\)]//g" | awk '{print $NF}')
+PTS0IPADDR=$(dig ${PTS0HOST} | egrep ^${PTS0HOST} | awk '{print $NF}')
+
 set +eu
 if [ ${#TRUSTSUBNET[@]} = 0 ];
 then
-  for LOGGED_IN in $(last | egrep "still[[:space:]]logged[[:space:]]in" | awk '{print $3}')
-  do
-    TRUSTSUBNET=( "${TRUSTSUBNET[@]}" "${LOGGED_IN}/32" )
-  done
+  TRUSTSUBNET=( "${TRUSTSUBNET[@]}" "${PTS0IPADDR}/32" )
 fi
 set -eux
 
@@ -520,7 +527,14 @@ MYSQL_INSTALL() {
   MYSQL_REPO_RPM_FILE_RPMCOMMANDSTAT=$(file ${MYSQL_REPO_RPM_FILE} | egrep "(RPM v[0-9.]* bin i386/x86_64)" > /dev/null ; echo $?)
   if [ -f ${MYSQL_REPO_RPM_FILE} -a 0 = ${MYSQL_REPO_RPM_FILE_RPMCOMMANDSTAT} ];
   then
-    yum -y localinstall ${MYSQL_REPO_RPM_FILE}
+    ##--@--## # 2016/07/03 仕様変更: 既に mysql57-community-release がインストールされているかどうかの条件分岐をするようにした
+    MYSQL_REPO_INSTALL_STAT=$(yum list installed mysql-community-release > /dev/null ; echo $?)
+    if [ ! ${MYSQL_REPO_INSTALL_STAT} = 0 ];
+    then
+      yum -y localinstall ${MYSQL_REPO_RPM_FILE}
+    else
+      :
+    fi
   else
     echo "${MYSQL_REPO_RPM_FILE} が存在しないかRPM形式ではありません"
   exit 1
