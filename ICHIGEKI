@@ -1,1179 +1,1102 @@
 #!/bin/bash
-##--@--##
-set -uex
 LANG=C
-LC_ALL=C
 
-NEWHOSTNAME=www
-NEWDOMAIN=example.com
+ADMINUSER_MAIL=
+ADMINUSER_ID=
+ADMINUSER_PW=
+ADMINUSER_PUBKEY=""
+WORDPRESS_TITLE=""
 
-ADMINUSERNAME=nullpopopo
-ADMINUSERPASS=p@SsW0rD_nU1Lp0PoP0
-ADMINUSEREMAIL=nullpopopo@example.com
+FQDN=
+CMSINSTALL_CHOICE=
+# yes|no(default)|none|wordpress|pico
 
-ADMINUSERPUBKEY="ssh-rsa AAAA..."
-
-ADMINGROUPNAME=${ADMINUSERNAME}
-# (仕様変更) OS管理者ユーザーがバーチャルホストを管理するかどうかを設定できるようにした。
-# ADMINUSER_VHOSTMANAGE=on でバーチャルホスト設定を行う。
-ADMINUSER_VHOSTMANAGE=on
-ADMINUSER_VHOST=${NEWHOSTNAME}.${NEWDOMAIN}
-# (仕様変更) OS管理者ユーザーが管理するバーチャルホストにCMSをインストールするかどうかを設定できるようにした。
-# 対応CMS: WordPress
-ADMINUSER_VHOST_CMS_INSTALL=on
-ADMINUSER_VHOST_CMS_TOOL=wordpress
-# WordPressのタイトルを変数に格納する
-WP_SITETITLE="example WordPress"
-# WordPressの管理者名を変数に格納する
-WP_ADMINUSERNAME=${ADMINUSERNAME}
-# WordPressの管理者用パスワードを変数に格納する
-WP_ADMINPASS=${ADMINUSERPASS}
-# WordPressの管理者メールアドレスを変数に格納する
-WP_ADMINMAILADDRESS=${ADMINUSEREMAIL}
-
-# (仕様変更) MySQLパッケージをサーバーとしてインストールするかクライアントとしてインストールするかをアドレスで判別するようにした。
-# localhost 127.0.0.1 であればサーバーとしてインストールする。
-# MySQLインストールはMYSQL_INSTALL関数で行う。
-MYSQLSERVER_ADDRESS=localhost
-MYSQLROOTPW=${ADMINUSERPASS}
-DBUSERNAME=${ADMINUSERNAME}
-DBUSERPASS=${ADMINUSERPASS}
-# (仕様変更) デフォルトのDB名を空欄にした。ただし、条件によりデフォルトの動作が異なる。
-# MySQL初期設定(デフォルトの動作設定)はMYSQL_INIT関数で行う。動作仕様は(長いので)関数内にコメントした。
-MYSQLDBNAME=
-
-ADMINUSERUID=1000
-ADMINUSERGID=1000
-ADMINUSERSHELL=/bin/bash
-ADMINUSER_SUDO_ENABLE=yes
-
-# WEBサーバーをnginxかApacheから選択する
-WEBSERVER=nginx
-#WEBSERVER=httpd
-
-# SSL証明書のディスティングイッシュネームを変数に格納する
-[ ! -z ${NEWHOSTNAME} ] && NEWFQDN=${NEWHOSTNAME}.${NEWDOMAIN} || NEWFQDN=${NEWDOMAIN}
-DN_C=JP
-DN_ST=Tokyo
-DN_L=Shinagawa-ku
-DN_O="nullpopopo"
-DN_OU="nullpopopo"
-DN_CN=${NEWFQDN}
-
-# Store the MySQL version to the variable
-MYSQLVER=5.6
-#MYSQLVER=5.7
-
-# データベースの文字コードを変数に格納する
-DBCHARSET=utf8
-
-# PHPのバージョンを選定する。最終的には関数「PHPVER_SELECT」で決定される。
-# (仕様変更) PHP5系は変数の小数点以下が何だろうと切り捨てて5.6固定とする。
-# (仕様変更) PHP7系は 2016/06/24 現在、7.0と7.1が存在するため、デフォルトは7.0、オプションで7.1を選択できるようにする。
-PHPVERSION=7
-
-# バーチャルホストの基点ディレクトリを変数に格納する
-VHOSTROOTDIR=/var/www/vhosts
-
-# バーチャルホストの基点ログディレクトリを変数に格納する
-VHOSTLOGDIR=/home/logs
-
-# SSH待受ポートを変数 SSHPORT に格納する
-SSHPORT=22
-
-TRUSTSUBNET=(
-
-)
-
-TRUSTSUBNET_OVERWRITE=yes
-
-# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
-# >>>>>>>>>>>>           ユーザーがカスタマイズしてもよい変数はここまで            <<<<<<<<<<<<
-# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
-
+WORDPRESS_MAIL=${ADMINUSER_MAIL}
+WORDPRESS_ID=${ADMINUSER_ID}
+WORDPRESS_PW=${ADMINUSER_PW}
 # WordPressの標準ロケールを変数に格納する
 WPLOCALE=ja
+
+WEBSERVER=nginx
+# nginx (default)|apache
+
+PHP_VERSION=7
+# 7 (default)|5
+PHP_TZ_REGION=Asia
+PHP_TZ_CITY=Tokyo
+
+MARIADB_VERSION=10.2
+# ================================================================ #
 
 # wp-cliダウンロード元を変数に格納する
 WPCLI_DOWNLOADURI="https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar"
 
-RUBYGETTERURI=https://raw.githubusercontent.com/nullpopopo/RUBYGETTER/master/RUBYGETTER
-RUBYSPECURI=https://raw.githubusercontent.com/hansode/ruby-2.1.x-rpm/master/ruby21x.spec
+# Picoダウンロード元を変数に格納する
+PICOURL=https://github.com/picocms/pico.git
+COMPOSERURL=https://getcomposer.org/installer
 
-# HHVMがLISTENするTCPポートを変数に格納する (default:9001 がバッティングするため9000へ変更するので)
-HHVM_TCPPORT=9000
+OS_DIST_NAME=$(rpm -q --info centos-release | egrep ^Vendor | awk '{print $NF}' | sed -e "s/\(.*\)/\L\1/")
+OS_DIST_VERSION=$(rpm -q --info centos-release | egrep ^Version | awk '{print $NF}')
+REMI_REPO_URI=http://rpms.famillecollet.com/enterprise/remi-release-7.rpm
+YUMREPODIR=/etc/yum.repos.d
 
-# PHPのタイムゾーンを変数へ格納する
-PHP_TZ_REGION=Asia
-PHP_TZ_CITY=Tokyo
+INSTALL_PACKAGES=(
+git
+augeas-libs
+gcc
+libffi-devel
+openssl-devel
+python-devel
+python-tools
+python-virtualenv
+redhat-rpm-config
+telnet
+nmap
+lsof
+)
+yum -y install ${INSTALL_PACKAGES[@]}
 
-# 配列 TRUSTSUBNET が空だったら現在接続中のIPアドレス (/32) をTRUSTSUBNET配列に追加する
-# 2016/07/03 ICHIGEKI実行時、SSH接続元ホストの名前解決が行われている場合にエラーとなるバグを修正。PTS/0 のIPアドレスを追加するようにした。
-DIG_RPM_PACKAGE=bind-utils
-DIGINSTALLED_STAT=$(yum list installed ${DIG_RPM_PACKAGE} > /dev/null ; echo $?)
-if [ ! ${DIGINSTALLED_STAT} = 0 ];
+# ================================================================ #
+
+
+# ================================================================ #
+
+# ランダムパスワード生成ワンライナーを関数 RAND_OPENSSL にまとめる
+RAND_OPENSSL(){
+CMD=$(
+echo '
+NUM=16
+KETA=1024
+echo $(
+       openssl rand -base64 ${KETA}                        | \
+       tr -dc '[:alnum:]'                                  | \
+       fold -w ${NUM}                                      | \
+       egrep "([[:digit:]A-Z]{2,})"                        | \
+       sed -e "s/[cC1la90oOpPq6bvVxXzZiIyYuUjJkKsSwWg]//g" | \
+       head -c ${KETA}
+      )                                                    | \
+sed -e "s/[[:space:]]//g"                                  | \
+cut -b -${NUM}                                             | \
+sed -e "s/\(.*\)/\U\1/"'                                   | \
+openssl enc -e -base64)
+echo ${CMD} | openssl enc -d -base64 | sh
+}
+
+# ================================================================ #
+
+
+# ================================================================ #
+
+# 必要であれば、外部に公開するNICのインターフェイスをINTERFACE変数に格納する
+# 通常は空欄でよい
+# ここでINTERFACE変数が空欄であれば、lo以外の最初のNICが変数に格納される
+INTERFACE=
+
+# ユーザー指定変数を補完する変数に値を代入する
+ADMINUSER_UID=500
+ADMINUSER_GID=500
+ADMINUSER_GROUPNAME=${ADMINUSER_ID}
+ADMINUSER_SHELL=/bin/bash
+ADMINUSER_HOMEDIR=/home/${ADMINUSER_ID}
+
+# DB関連変数に値を代入する
+DB_NAME=wpdb0000
+DB_USER=wpuser0000
+DB_PASS=$(RAND_OPENSSL)
+
+# SSH接続許可対象IPv4アドレス(private)の配列を生成する
+AllowIPAddrList=(
+192.168.0.0/16
+172.16.0.0/12
+10.0.0.0/8
+)
+
+# バーチャルホスト関係のディレクトリ、ログファイルの変数に値を代入する
+VHOSTDIR=/home/vhosts/${FQDN}
+DROOTDIR=${VHOSTDIR}/DocumentRoot
+if [ ! ${#WEBSERVER_UPPERCASE} = 0 ];
 then
-  yum -y install ${DIG_RPM_PACKAGE}
-fi
-PTS0HOST=$(who | egrep pts/0 | sed -e "s/[\(\)]//g" | awk '{print $NF}')
-if [ ! 0 = $(echo ${PTS0HOST} | | egrep '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$') ];
-then
-  PTS0IPADDR=$(dig ${PTS0HOST} | egrep ^${PTS0HOST} | awk '{print $NF}')
+  VHLOGDIR=${VHOSTDIR}/logs/${WEBSERVER}
 else
-  PTS0IPADDR=${PTS0HOST}
+  WEBSERVER_UPPERCASE=$(echo ${WEBSERVER} | sed -e "s/\(.*\)/\U\1/")
+  VHLOGDIR=${VHOSTDIR}/logs/${WEBSERVER_UPPERCASE}
 fi
+ERRORLOG=${VHLOGDIR}/error_log
+ACCESSLOG=${VHLOGDIR}/access_log
 
-set +eu
-if [ ${#TRUSTSUBNET[@]} = 0 ];
+# webmasterユーザーに関する変数に値を代入する
+WEBMASTER_USER=webmaster
+WEBMASTER_GROUP=webmaster
+WEBMASTER_UID=1000
+WEBMASTER_GID=1000
+WEBMASTER_SHELL=/sbin/nologin
+WEBMASTER_HOME=${VHOSTDIR}
+
+# CMS関連のフラグを CMSINSTALL_SPEC 変数に代入する
+CMSINSTALL_CHOICE_UPPERCASE=$(
+                              echo ${CMSINSTALL_CHOICE} | \
+                              sed -e "s/\(.*\)/\U\1/"
+                             )
+if [ ${CMSINSTALL_CHOICE_UPPERCASE} = YES ];
 then
-  TRUSTSUBNET=( "${TRUSTSUBNET[@]}" "${PTS0IPADDR}/32" )
+  CMSINSTALL_SPEC=WORDPRESS
 fi
-set -eux
 
-# WEBサーバーのバーチャルホスト設定ファイルを変数に格納する
-VCONFDIR=/etc/${WEBSERVER}/conf.d
-VHOSTCONF=${VCONFDIR}/000_DEFAULT_${NEWFQDN}.conf
+if [ ${CMSINSTALL_CHOICE_UPPERCASE} = NO ];
+then
+  CMSINSTALL_SPEC=NONE
+fi
 
-# 管理者ユーザーのユーザー名とパスワードを(暗号化して)記録するファイルを ADMINUSER_PWFILE 変数へ格納する
-ETC_ROOT=/root/etc
-ADMINUSER_PWFILE=${ETC_ROOT}/${ADMINUSERNAME}_PW.txt
-mkdir -p ${ETC_ROOT}
+if [ ${CMSINSTALL_CHOICE_UPPERCASE} = NONE ];
+then
+  CMSINSTALL_SPEC=NONE
+fi
 
-# lo以外の最初のI/FのIPアドレスをIPADDR変数へ格納する
-INTERFACE=$(ip a show | egrep ^[0-9] | awk '{print $2}' | sed -e "s/://g" | egrep -v ^lo | head -n 1)
-IPADDR=$(ip a show dev ${INTERFACE} | egrep '( inet )' | awk '{print $2}' | sed -e "s/\/[0-9]*//")
+if [ ${CMSINSTALL_CHOICE_UPPERCASE} = WORDPRESS ];
+then
+  CMSINSTALL_SPEC=WORDPRESS
+fi
 
-# プログラム名を変数に格納する
-PROGNAME=$(basename ${0})
+if [ ${CMSINSTALL_CHOICE_UPPERCASE} = PICO ];
+then
+  CMSINSTALL_SPEC=PICO
+fi
 
-# プログラムの実行ログを変数に格納する
-LOGDIR=/root/logs
-LOGFILE=${LOGDIR}/${PROGNAME}_EVENTLOG
-mkdir -p ${LOGDIR}
+if [ ${CMSINSTALL_SPEC} = WORDPRESS ];
+then
+  MARIADB_INSTALL=YES
+  WPINSTALL_CHECK=YES
+fi
 
-# remiリポジトリのURIを REMIREPOURI 変数へ格納する
-REMIREPOURI=http://rpms.famillecollet.com/enterprise/remi-release-7.rpm
 
-# rpmforgeリポジトリのURIを RPMFORGEREPOURI 変数へ格納する
-RPMFORGEREPODIRURI=http://ftp.riken.jp/Linux/repoforge/redhat/el7/en/$(uname -m)/rpmforge/RPMS
-RPMFORGEREPOURI=${RPMFORGEREPODIRURI}/rpmforge-release-0.5.3-1.el7.rf.$(uname -m).rpm
+# ================================================================ #
 
-# ファイル暗号化およびSSH公開鍵認証設定の処理を行う関数「ENC_PROC」に必要なパラメータを変数に格納する
-SSHDIR=/root/.ssh
-ENC_STRENGTH=4096
-SECRETKEY=${SSHDIR}/id_rsa
-PUBLICKEY=${SECRETKEY}.pub
-SEC_PEMFILE=${SECRETKEY}.pem
-PUB_PEMFILE=${SECRETKEY}.pub.pem
-SSHAUTHKEY=${SSHDIR}/authorized_keys
 
-YEAR=$(date +%Y)
+# ================================================================ #
 
-# 実行前チェック関数「ENV_CHECK」に環境チェックをすべてまとめる。
-ENV_CHECK() {
-  # 実行ユーザーがrootでなければ異常終了させる
-  [ ! root = $(id | awk '{print $1}' | sed -e "s/[\(\)]/ /g" | awk '{print $NF}') ] && exit 1
+# 石川さんごめんなさい
+setenforce 0
+SELINUX_CONFDIR=/etc/selinux
+SELINUX_CONF=${SELINUX_CONFDIR}/config
+SELINUX_BACKUPCONF=${SELINUX_CONFDIR}/BACKUP/$(basename ${SELINUX_CONF}).ORIG
+mkdir -p ${SELINUX_CONFDIR}/BACKUP
+cp -p ${SELINUX_CONF} ${SELINUX_BACKUPCONF}
+sed -i "/SELINUX=enforcing/s/enforcing/disabled/" ${SELINUX_CONF}
 
-  # root以外のユーザーがいれば異常終了させる
-  USERS_STATUS=$(cat /etc/passwd | egrep -v "/s?bin/(nologin|shutdown|sync|halt)$" | egrep -v ^root > /dev/null ; echo $?)
-  [ ! 1 = ${USERS_STATUS} ] && exit 1
+# ================================================================ #
 
-  # yum check-update の終了ステータスが 0 or 100 でなければ異常終了させる
-  YUMSTATUS=$(yum check-update > /dev/null ; echo $?)
-  [ 0 = ${YUMSTATUS} -o 100 = ${YUMSTATUS} ] || exit 1
+# ================================================================ #
 
-  # (仕様変更) LinuxディストリビューションがCentOS7でなければ異常終了させる
-  #            (/etc/os-releaseが存在せず、/etc/issue.netにCentOSが含まれていればCentOS7と判定する)
-  ISSUEFILE=/etc/issue.net
-  RELEASEFILE=/etc/os-release
-  if [ -f ${ISSUEFILE} ];
+# webmasterユーザーを作成する WEBMASTER_CREATE 関数
+WEBMASTER_CREATE(){
+groupadd -g                                     \
+  ${WEBMASTER_GID}                              \
+  ${WEBMASTER_GROUP}
+
+useradd                                         \
+  -g ${WEBMASTER_GID}                           \
+  -u ${WEBMASTER_UID}                           \
+  -s ${WEBMASTER_SHELL}                         \
+  -d ${WEBMASTER_HOME}                          \
+     ${WEBMASTER_USER}
+}
+
+# SSHでログインさせるユーザーに関する処理を行う SSHUSER_CREATE 関数
+#  - 処理内容
+#    グループ追加
+#    ユーザー追加
+#    パスワード設定
+#      (もしパスワード ADMINUSER_PW変数 が空欄ならランダムにパスワードを作成)
+#    sudoers設定
+#    SSH公開鍵の書式が正しければauthorized_keysに公開鍵を追加する
+SSHUSER_CREATE(){
+groupadd                                        \
+  -g ${ADMINUSER_GID}                           \
+     ${ADMINUSER_GROUPNAME}
+
+useradd                                         \
+  -g ${ADMINUSER_GID}                           \
+  -u ${ADMINUSER_UID}                           \
+  -s ${ADMINUSER_SHELL}                         \
+  -d ${ADMINUSER_HOMEDIR}                       \
+     ${ADMINUSER_ID}
+
+if [ ! 0 = ${#ADMINUSER_PW} ];
+then
+  echo ${ADMINUSER_PW}                          | \
+  passwd --stdin ${ADMINUSER_ID}
+else
+  ADMINUSER_PW=$(RAND_OPENSSL)
+  echo ${ADMINUSER_PW}                          | \
+  tee ${HOME}/.${ADMINUSER_ID}_PWFILE.txt
+  echo ${ADMINUSER_PW}                          | \
+  passwd --stdin ${ADMINUSER_ID}
+fi
+
+SUDOERS_FILE=/etc/sudoers.d/${ADMINUSER_ID}
+echo -e                                         \
+  "${ADMINUSER_ID}\tALL=(ALL)\tNOPASSWD: ALL"   | \
+  tee ${SUDOERS_FILE}
+chmod 444 ${SUDOERS_FILE}
+
+SSH_AUTHKEY_TMPFILE=/root/SSH_AUTHKEY_TMPFILE
+echo ${ADMINUSER_PUBKEY} | tee ${SSH_AUTHKEY_TMPFILE}
+SSHKEYCHECK_RESULT=$(
+                     ssh-keygen -l                \
+                     -f ${SSH_AUTHKEY_TMPFILE}  | \
+                     awk '{print $NF}'          | \
+                     sed -e "s/[\(\)]//g"
+                    )
+if [ ! 0 = ${#ADMINUSER_PUBKEY} ];
+then
+  #
+  AUTHPUBKEYDIR=${ADMINUSER_HOMEDIR}/.ssh
+  AUTHPUBKEYFILE=${AUTHPUBKEYDIR}/authorized_keys
+  #
+  mkdir -p ${AUTHPUBKEYDIR}
+  touch    ${AUTHPUBKEYFILE}
+  chown -R ${ADMINUSER_ID}. ${AUTHPUBKEYDIR}
+  chmod -R go-rwx ${AUTHPUBKEYDIR}
+  #
+  if [ ${SSHKEYCHECK_RESULT} = RSA ];
   then
-    DISTNAME_DESC=$(cat /etc/issue.net | egrep ^[[:alnum:]] | egrep -v ^Kernel | awk '{print $1}')
-    # 変数DISTNAME_DESCの文字数で条件分岐する
-    if [ ! 0 = ${#DISTNAME_DESC} ];
-    then
-      # 変数DISTNAME_DESCの文字数が0でなければ、issue.netのディストリビューション名を変数に格納する
-      DISTNAME=$(cat ${ISSUEFILE} | egrep ^[[:alnum:]] | egrep -v ^Kernel | awk '{print $1}')
-    else
-      # 変数DISTNAME_DESCの文字数が0であれば、os-releaseのディストリビューション名を変数に格納する
-      DISTNAME=$(cat ${RELEASEFILE} | egrep ^NAME | awk 'BEGIN {FS="="} {print $NF}' | sed -e "s/\"//g" | awk '{print $1}')
-    fi
-  else
+    cp -p ${SSH_AUTHKEY_TMPFILE} ${AUTHPUBKEYFILE}
+    chown ${ADMINUSER_ID}. ${AUTHPUBKEYFILE}
+  fi
+  if [ ${SSHKEYCHECK_RESULT} = DSA ];
+  then
+    cp -p ${SSH_AUTHKEY_TMPFILE} ${AUTHPUBKEYFILE}
+    chown ${ADMINUSER_ID}. ${AUTHPUBKEYFILE}
+  fi
+  if [ ${SSHKEYCHECK_RESULT} = ECDSA ];
+  then
+    cp -p ${SSH_AUTHKEY_TMPFILE} ${AUTHPUBKEYFILE}
+    chown ${ADMINUSER_ID}. ${AUTHPUBKEYFILE}
+  fi
+  rm -f ${SSH_AUTHKEY_TMPFILE}
+else
+  :
+fi
+}
+SSHUSER_CREATE
+
+# bind-utilsをインストールする BINDUTILS_INSTALL 関数
+BINDUTILS_INSTALL(){
+yum -y install bind-utils
+}
+BINDUTILS_INSTALL
+
+# 配列AllowIPAddrListに今ログインしているIPアドレスを加えたものを
+# 配列AllowIPAddrList_ALLへ格納する FIREWALLD_SSH_ALLOW 関数
+#  - 前提条件 : sshd_configでUseDNS yesであること : デフォルトはyes
+FIREWALLD_SSH_ALLOW(){
+# 現在のアクティブゾーンを変数に格納する
+FW_ACTIVE_ZONE=$(firewall-cmd --get-active-zones | egrep -v ^[[:space:]])
+
+# 一旦sshの許可を取り消す
+firewall-cmd                                      \
+  --permanent                                     \
+  --remove-service=ssh
+
+# 現在SSH接続しているホストをPTS変数へ代入する
+for PTS in $(
+             who                                | \
+             egrep "pts/[0-9]{1,}"              | \
+             egrep -v "(localhost|::1)"         | \
+             awk '{print $NF}'                  | \
+             sed -e "s/[\(\)]//g"
+            )
+do
+
+# PTS変数がホスト名であればdigで名前解決を行い、
+# IPアドレスであればそのまま ALLOWSSH_IPADDR 配列へ追加し、
+# firewall-cmd コマンドでアクティブなゾーンのSSH接続を許可する
+if [ 0 = $(dig ${PTS} | egrep "^${PTS}" > /dev/null ; echo $?) ];
+then
+  ALLOWSSH_IPADDR=$(dig ${PTS} | egrep "^${PTS}" | awk '{print $NF}')/32
+else
+  ALLOWSSH_IPADDR=${PTS}/32
+fi
+firewall-cmd                                      \
+  --permanent                                     \
+  --zone=${FW_ACTIVE_ZONE}                        \
+  --add-rich-rule="rule family="ipv4"             \
+  source address="${ALLOWSSH_IPADDR}"             \
+  port protocol="tcp" port="22" accept"
+done
+firewall-cmd --reload
+}
+FIREWALLD_SSH_ALLOW
+
+# http httpsのポートを許可する FIREWALLD_WWW_ALLOW 関数
+FIREWALLD_WWW_ALLOW(){
+FW_ACTIVE_ZONE=$(firewall-cmd --get-active-zones | egrep -v ^[[:space:]])
+firewall-cmd --zone=${FW_ACTIVE_ZONE} --add-service http  --permanent
+firewall-cmd --zone=${FW_ACTIVE_ZONE} --add-service https  --permanent
+firewall-cmd --reload
+}
+FIREWALLD_WWW_ALLOW
+
+# 今あるグローバルIPアドレスの名前解決を行う FQDN_DIG_STATUS_CHECK 関数
+FQDN_DIG_STATUS_CHECK(){
+# もしすでにあるINTERFACE変数が0文字であれば
+# lo以外の最初のインターフェイスを変数に格納する
+if [ 0 = ${#INTERFACE} ];
+then
+  INTERFACE=$(
+              ip a                                  | \
+              egrep ^[0-9]                          | \
+              egrep -v ^1:                          | \
+              awk '{print $2}'                      | \
+              head -n 1                             | \
+              sed -e "s/://"
+             )
+fi
+# INTERFACE変数に格納されたNICのIPアドレスをIPADDR変数に格納する
+IPADDR=$(
+         ip a show dev ${INTERFACE}                 | \
+         egrep "^[[:space:]]{1,}inet[[:space:]]"    | \
+         awk '{print $2}'                           | \
+         sed -e "s/\/[0-9]\{1,\}//"
+        )
+
+# digコマンドの結果がegrepにマッチするかの終了ステータスをFQDN_DIG_STATUS_CHECKに代入する
+FQDN_DIG_STATUS_CHECK=$(
+  dig ${FQDN}                                       | \
+  egrep                                               \
+  "(^${FQDN}.[[:space:]]{1,}[0-9]{1,}[[:space:]]{1,}IN[[:space:]]{1,}A[[:space:]]{1,}${IPADDR})" > \
+  /dev/null                                         ; \
+  echo $?
+  )
+
+# 最終的にグローバルIPアドレスを持つインターフェイスの
+# 名前解決ができたかどうかを FQDN_DIG_STATUS_RESULT 変数に代入する
+# (あちこちで終了ステータスを使うと混乱するのでYES NOに変換)
+if [ 0 = ${FQDN_DIG_STATUS_CHECK} ];
+then
+  FQDN_DIG_STATUS_RESULT=YES
+else
+  FQDN_DIG_STATUS_RESULT=NO
+fi
+}
+FQDN_DIG_STATUS_CHECK
+
+# WordPress関連の変数をチェックする WP_ENV_CHECK 関数
+WP_ENV_CHECK(){
+#
+if [ ${CMSINSTALL_SPEC} = WORDPRESS ];
+then
+  #
+  if [ 0 = ${#WORDPRESS_MAIL} ];
+  then
+    ERROR_MSG="メールアドレスがありません"
+    ERRORLOG_FILE=${HOME}/${FUNCNAME[0]}_ERROR.log
+    echo ${ERROR_MSG} | tee ${ERRORLOG_FILE}
     exit 1
   fi
-  [   -f ${RELEASEFILE}  -a ! ${DISTNAME} = CentOS  ] && DIST_VERSION=OTHER
-  [ ! -f ${RELEASEFILE}  -a   ${DISTNAME} = CentOS  ] && DIST_VERSION=CentOS6
-  [   -f ${RELEASEFILE}  -a   ${DISTNAME} = CentOS  ] && DIST_VERSION=CentOS7
-  [      ${DIST_VERSION}                  = CentOS7 ] || exit 1
-}
-
-SELINUX_SETTING() {
-  if [ $(getenforce) = Enforcing -o $(getenforce) = Permissive ];
+  #
+  if [ 0 = ${#WORDPRESS_ID} ];
   then
-    SELINUX_CONFIG=/etc/selinux/config
-    cp -p ${SELINUX_CONFIG}{,.orig}
-    sed -i "/^SELINUX=/s/permissive/disabled/" ${SELINUX_CONFIG}
-    sed -i "/^SELINUX=/s/enforcing/disabled/"  ${SELINUX_CONFIG}
-  else
-    :
+    WORDPRESS_ID=$(RAND_OPENSSL)
   fi
-}
-
-CMS_VAL_REPLACE() {
-# ADMINUSER_VHOST_CMS_TOOL 変数に代入された値が何であろうと、CMS変数にADMINUSER_VHOST_CMS_TOOLの値を代入する。
-# ここで、ADMINUSER_VHOST_CMS_TOOL 変数にスペースが含まれているかどうかを終了ステータスで判断し、スペースを_に置換すれば内部的に解決できる。
-CMS_NAME_VALIDATION=$(cat ${0} | egrep "^(ADMINUSER_VHOST_CMS_TOOL=|[[:space:]]*ADMINUSER_VHOST_CMS_TOOL=)" > /dev/null ; echo $?)
-if [ 0 = ${CMS_NAME_VALIDATION} ];
-then
-  CMS=$(cat ${0}                                                                  | \
-        egrep "^(ADMINUSER_VHOST_CMS_TOOL|[[:space:]]*ADMINUSER_VHOST_CMS_TOOL)=" | \
-        sed -e "s/[[:space:]]/_/g"                                                | \
-        awk 'BEGIN {FS="="} {print $NF}')
-else
-  CMS=${ADMINUSER_VHOST_CMS_TOOL}
+  #
+  if [ 0 = ${#WORDPRESS_PW} ];
+  then
+    WORDPRESS_PW=$(RAND_OPENSSL)
+  fi
+  #
+  if [ 0 = ${#WORDPRESS_TITLE} ];
+  then
+    WORDPRESS_TITLE=$(RAND_OPENSSL)
+  fi
 fi
 }
+WP_ENV_CHECK
 
-# ファイル暗号化およびSSH公開鍵認証設定の処理を行う処理を関数「ENC_PROC」にまとめる
-ENC_PROC() {
-  yum -y install openssl
-  if [ ! -f ${SECRETKEY} ];
-  then
-    # ${HOME}/.ssh ディレクトリ作成
-    mkdir -p ${SSHDIR}
-    chmod 700 ${SSHDIR}
-    # 秘密鍵 公開鍵のペアを作成
-    ssh-keygen                     \
-      -f ${SECRETKEY}              \
-      -b ${ENC_STRENGTH}           \
-      -t rsa                       \
-      -N ""
-    # 秘密鍵からファイル復号化用の秘密鍵を作成
-    openssl                        \
-      rsa                          \
-      -in ${SECRETKEY}             \
-      -outform pem                 \
-      -out ${SEC_PEMFILE}
-    # 秘密鍵からファイル暗号化用の公開鍵を作成
-    openssl                        \
-      rsa                          \
-      -in ${SECRETKEY}             \
-      -pubout                      \
-      -outform pem                 \
-      -out ${PUB_PEMFILE}
-  else
-    if [ ! -f ${PEMFILE} ];
-    then
-      openssl                      \
-        rsa                        \
-        -in ${SECRETKEY}           \
-        -pubout                    \
-        -out ${SEC_PEMFILE}
-    fi
-  fi
-  # 公開鍵(id_rsa.pub)をssh公開鍵としてコピー
-  if [ ! -f ${SSHAUTHKEY} ];
-  then
-    ssh-keygen -y                  \
-      -f ${SECRETKEY}            | \
-      tee ${SSHAUTHKEY}
-  else
-    ssh-keygen -y                  \
-      -f ${SECRETKEY}            | \
-      tee -a ${SSHAUTHKEY}
-  fi
-  chmod 600 ${SSHAUTHKEY}
+# ================================================================ #
+
+
+# ================================================================ #
+
+# WordPressをインストールする場合、MariaDBをインストールする
+# (MariaDBをインストールするかどうかの条件分岐は関数の外で行う)
+MARIADB_INSTALL_FUNCTION(){
+MARIADB_REPOURI=yum.mariadb.org
+MARIADB_REPOFILE=${YUMREPODIR}/MariaDB.repo
+MARIADB_OSNAME=${OS_DIST_NAME}${OS_DIST_VERSION}
+cat << _EOL_ | tee ${MARIADB_REPOFILE}
+# http://downloads.mariadb.org/mariadb/repositories/
+[mariadb]
+name = MariaDB
+baseurl = http://${MARIADB_REPOURI}/${MARIADB_VERSION}/${MARIADB_OSNAME}-amd64
+gpgkey=https://yum.mariadb.org/RPM-GPG-KEY-MariaDB
+gpgcheck=1
+_EOL_
+yum -y install MariaDB-server MariaDB-client galera MariaDB-tokudb-engine
 }
 
-# 関数「YUM_REPOS_INSTALL」でepel remi rpmforgeリポジトリのインストールと初期設定(無効化)を行う
-YUM_REPOS_INSTALL() {
-  # epel Repository Install
-  if [ ! -f /etc/yum.repos.d/epel.repo ];
-  then
-    yum -y install epel-release
-    mkdir -p /etc/yum.repos.d/BACKUP/
-    cp -p /etc/yum.repos.d/epel.repo{,.orig}
-    sed -i "s/enabled=1/enabled=0/" /etc/yum.repos.d/epel.repo
-  else
-    :
-  fi
 
-  # remi Repository Install
-  if [ ! -f /etc/yum.repos.d/remi.repo ];
-  then
-    yum -y install ${REMIREPOURI}
-    mkdir -p /etc/yum.repos.d/BACKUP/
-    cp -p /etc/yum.repos.d/remi* /etc/yum.repos.d/BACKUP/
-    sed -i "/^enabled/s/1/0/g" /etc/yum.repos.d/remi*
-  else
-    :
-  fi
+MARIADB_SECURE_INSTALLATION(){
+# MariaDBが起動していなければ起動させる
+if [ ! 0 = $(systemctl status mariadb > /dev/null ; echo $?) ];
+then
+  systemctl start mariadb
+fi
 
-  # rpmforge Repository Install
-  if [ ! -f /etc/yum.repos.d/rpmforge.repo ];
-  then
-    yum -y install ${RPMFORGEREPOURI}
-    mkdir -p /etc/yum.repos.d/BACKUP/
-    cp -p /etc/yum.repos.d/rpmforge* /etc/yum.repos.d/BACKUP/
-    sed -i "/^enabled/s/1/0/g" /etc/yum.repos.d/rpmforge*
-  else
-    :
-  fi
-}
-
-# 関数「USEFUL_TOOLS_INSTALL」でサーバー管理用コマンドのインストールを行い、yum updateを行う。
-USEFUL_TOOLS_INSTALL() {
-  TOOLS_BASE_PACKAGES=(
-    autoconf
-    automake
-    bind-utils
-    chrony
-    dstat
-    gcc
-    gcc-c++
-    git
-    lsof
-    mailx
-    man
-    nkf
-    psmisc
-    rpm-build
-    strace
-    telnet
-    unzip
-    wget
-    whois
-    zip
-  )
-
-  TOOLS_EPEL_PACKAGES=(
-    sshpass
-    htop
-    mytop
-    jq
-  )
-
-  yum -y                   install ${TOOLS_BASE_PACKAGES[@]}
-  yum -y --enablerepo=epel install ${TOOLS_EPEL_PACKAGES[@]}
-  yum -y update
-
-  # chronyによる時刻同期を自動で行うようにする。
-  CHRONY_YUM_INSTALLED_STATUS=$(yum list installed chrony > /dev/null ; echo $?)
-  CHRONY_STARTUP_STATUS=$(systemctl status chronyd.service > /dev/null ; echo $?)
-  if [ ${CHRONY_YUM_INSTALLED_STATUS} = 0 -a ${CHRONY_STARTUP_STATUS} = 3 ];
-  then
-    systemctl start chronyd.service
-    systemctl enable chronyd.service
-  fi
-}
-
-# 関数「ADMINUSER_CREATE」で以下の処理を行う
-#    ENC_PROC 関数実行
-#    管理者グループ作成
-#    管理者ユーザー作成
-#    管理者ユーザーにパスワードを付与(と同時にテキストファイルに出力する)
-#    管理者ユーザーの公開鍵登録
-#      仕様: もし変数「ADMINUSERPUBKEY」が空でなければ公開鍵を登録する。
-#            公開鍵ファイルをfileコマンドにかけ、OpenSSH RSA public keyであれば
-#            公開鍵ファイルのパーミッションを600にする。
-#            公開鍵ファイルがOpenSSH RSA public keyでなければ
-#            エラーログ /root/logs/ICHIGEKI_ERRORLOG に出力し、公開鍵ファイルを削除する。
-#    ADMINUSER_VHOSTMANAGE 変数が in on 0 true yes のいずれかであった場合、次の処理を行う。
-#            1) ドキュメントルートおよびシンボリックリンク作成
-#            2) ドキュメントルート、管理者ユーザーのホームディレクトリのオーナー修正
-#    ADMINUSER_VHOSTMANAGE 変数が上記に該当しない場合(空の場合も含む)、次の処理を行う。
-#            1) 管理者ユーザーのホームディレクトリのオーナー修正
-ADMINUSER_SSHDIR=/home/${ADMINUSERNAME}/.ssh
-ADMINUSER_SSHAUTHKEY=${ADMINUSER_SSHDIR}/authorized_keys
-ADMINUSER_VHOSTDIR=${VHOSTROOTDIR}/${ADMINUSER_VHOST}
-ADMINUSER_VHOSTLOGDIR=${VHOSTLOGDIR}/${ADMINUSER_VHOST}
-DROOTDIR=${ADMINUSER_VHOSTDIR}
-ERRORLOG=${ADMINUSER_VHOSTLOGDIR}/error_log
-ACCESSLOG=${ADMINUSER_VHOSTLOGDIR}/access_log
-
-ADMINUSER_CREATE() {
-  ENC_PROC
-  if [ 0 = $(echo ${ADMINUSER_VHOSTMANAGE} | egrep "^([iIoO][nN]|0|[tT][rR][uU][eE]|[yY][eE][sS])$" > /dev/null ; echo $?) ];
-  then
-    ADMINUSER_VHOSTMANAGE_STAT=TRUE
-  else
-    ADMINUSER_VHOSTMANAGE_STAT=FALSE
-  fi
-
-  #
-  groupadd                                             \
-    -g ${ADMINUSERGID}                                 \
-    ${ADMINGROUPNAME}
-  #
-  useradd                                              \
-    -g ${ADMINUSERGID}                                 \
-    -u ${ADMINUSERUID}                                 \
-    -s ${ADMINUSERSHELL}                               \
-    ${ADMINUSERNAME}
-  #
-  echo ${ADMINUSERNAME}:${ADMINUSERPASS}             | \
-    tee ${ADMINUSER_PWFILE}                          | \
-    chpasswd
-
-  if [ -f ${ADMINUSER_PWFILE} ];
-  then
-    openssl                                           \
-      rsautl                                          \
-      -encrypt                                        \
-      -pubin                                          \
-      -inkey ${PUB_PEMFILE}                           \
-      -in ${ADMINUSER_PWFILE}                         \
-      -out ${ADMINUSER_PWFILE}.encrypted
-  fi
-
-  if [ -f ${ADMINUSER_PWFILE}.encrypted ];
-  then
-    rm -f ${ADMINUSER_PWFILE}
-  fi
-
-  mkdir -p ${ADMINUSER_SSHDIR}
-
-  if [ ! 0 = ${#ADMINUSERPUBKEY} ];
-  then
-    echo ${ADMINUSERPUBKEY}                        | \
-      tee ${ADMINUSER_SSHAUTHKEY}
-    ADMINUSERPUBKEY_FILESTAT=$(
-      file ${ADMINUSER_SSHAUTHKEY}                 | \
-      awk 'BEGIN {FS=":[[:space:]]"} {print $NF}'
-    )
-    ADMINUSERPUBKEY_FILESTAT_CHECKVALUE=$(
-      echo ${ADMINUSERPUBKEY_FILESTAT}             | \
-      egrep "^(OpenSSH RSA public key)$"           > \
-      /dev/null ; echo $?
-    )
-    chmod 600 ${ADMINUSER_SSHAUTHKEY}
-    if [ ! 0 = ${ADMINUSERPUBKEY_FILESTAT_CHECKVALUE} ];
-    then
-      rm -f ${ADMINUSER_SSHAUTHKEY}
-      echo "${ADMINUSER_SSHAUTHKEY} has been deleted because it was not a OpenSSH RSA public key format." | \
-      tee -a ${ERRORLOG}
-    fi
-  else
-    :
-  fi
-
-  ADMINUSER_SUDO_ENABLE_FLAG=$(echo ${ADMINUSER_SUDO_ENABLE} | egrep -i "(yes|on|0|enable)" > /dev/null ; echo $?)
-  if [ ${ADMINUSER_SUDO_ENABLE_FLAG} = 0 ];
-  then
-    #
-    touch /etc/sudoers.d/${ADMINUSERNAME}
-    #
-    echo -e "${ADMINUSERNAME}\tALL=(ALL)\tNOPASSWD: ALL"           | \
-      tee -a /etc/sudoers.d/${ADMINUSERNAME}
-    #
-    echo -e "Defaults:${ADMINUSERNAME}\t!requiretty"               | \
-      tee -a /etc/sudoers.d/${ADMINUSERNAME}
-    #
-    echo -e "Defaults:${ADMINUSERNAME}\tenv_keep += SSH_AUTH_SOCK" | \
-      tee -a /etc/sudoers.d/${ADMINUSERNAME}
-  fi
-
-  mkdir -p ${ADMINUSER_VHOSTDIR} ${ADMINUSER_VHOSTLOGDIR}
-  mkdir -p /home/${ADMINUSERNAME}/{etc,bin}
-  mkdir -p /home/${ADMINUSERNAME}/${ADMINUSER_VHOST}/{src,BACKUP_FILES,BACKUP_SQL}
-  if [ ${ADMINUSER_VHOSTMANAGE_STAT} = TRUE ];
-  then
-    ln    -s ${ADMINUSER_VHOSTDIR}    /home/${ADMINUSERNAME}/${ADMINUSER_VHOST}/public_html
-    ln    -s ${ADMINUSER_VHOSTLOGDIR} /home/${ADMINUSERNAME}/${ADMINUSER_VHOST}/logs
-    chown -R ${ADMINUSERNAME}.        ${ADMINUSER_VHOSTDIR} /home/${ADMINUSERNAME}
-  else
-    chown -R ${ADMINUSERNAME}.        /home/${ADMINUSERNAME}
-  fi
-}
-
-# sshd初期設定処理を「INIT_SSH」関数にまとめる。
-INIT_SSH() {
-  SSHPORT_DEFAULT=22
-  if [ 0 = ${#SSHPORT} ];
-  then
-    SSHPORT=${SSHPORT_DEFAULT}
-  fi
-  SSHDCONFIG=/etc/ssh/sshd_config
-  cp -p ${SSHDCONFIG}{,.orig}
-  sed -i "/^#Port[[:space:]]22$/a\Port 22"                                ${SSHDCONFIG}
-  if [ ! 22 = ${SSHPORT} ];
-  then
-    sed -i "/^Port[[:space:]]22$/a\Port ${SSHPORT}"                       ${SSHDCONFIG}
-  fi
-  sed -i "/^#KerberosAuthentication no/s/#//"                             ${SSHDCONFIG}
-  sed -i "/^#GSSAPIAuthentication no/s/#//"                               ${SSHDCONFIG}
-  sed -i "/^GSSAPIAuthentication yes/s/yes$/no/"                          ${SSHDCONFIG}
-  sed -i "/^GSSAPICleanupCredentials yes/s/yes$/no/"                      ${SSHDCONFIG}
-  sed -i "s/#GSSAPIStrictAcceptorCheck yes/GSSAPIStrictAcceptorCheck no/" ${SSHDCONFIG}
-  sed -i "/#GSSAPIKeyExchange no/s/#//"                                   ${SSHDCONFIG}
-  sed -i "s/#UseDNS yes/UseDNS no/"                                       ${SSHDCONFIG}
-  cp -p ${SSHDCONFIG}{,.TMP}
-  awk 'NR==1||prev!=$0;{prev=$0}' ${SSHDCONFIG}.TMP                 | tee ${SSHDCONFIG}
-  rm -f ${SSHDCONFIG}.TMP
-}
-
-MYSQL_INSTALL() {
-  # MySQLのバージョン指定がない場合、デフォルトのバージョンでインストールする。
-  MYSQL_DEFAULT_VERSION=5.6
-  [ 0 = ${#MYSQLVER} ] && MYSQLVER=${MYSQL_DEFAULT_VERSION}
-  # mysql57-community-release を /root/src/mysql へダウンロードする
-  MYSQL_SRCDIR=/root/src/mysql
-  mkdir -p ${MYSQL_SRCDIR}
-  # MySQLダウンロードサイトのサーバー名を MYSQL_REPOSERVER 変数へ格納する
-  MYSQL_REPOSERVER=https://dev.mysql.com
-  MYSQL_REPOBASEDIR=${MYSQL_REPOSERVER}/downloads/repo/yum/
-  # MySQL :: Begin Your Download - mysql57-community-release-el7-8.noarch.rpm のページを MYSQL_REPO_RPM_FILEDIR 変数へ格納する
-  MYSQL_REPO_RPM_FILEDIR=${MYSQL_REPOSERVER}/$(curl -s ${MYSQL_REPOBASEDIR} | egrep /downloads/file/ | head -n 1 | sed -e "s/\"/ /g" | awk '{print $6}' | cut -b 2-)
-  # https://dev.mysql.com/get/mysql57-community-release-el7-8.noarch.rpm を MYSQL_REPO_RPM_FILEURI 変数へ格納する
-  MYSQL_REPO_RPM_FILEURI=${MYSQL_REPOSERVER}/$(curl -s ${MYSQL_REPO_RPM_FILEDIR} | egrep href | egrep rpm | sed -e "s/\"/ /g" | awk '{print $4}' | cut -b 2-)
-  # ダウンロード先ファイル名をフルパスで MYSQL_REPO_RPM_FILE 変数へ格納する
-  MYSQL_REPO_RPM_FILE=${MYSQL_SRCDIR}/$(basename ${MYSQL_REPO_RPM_FILEURI})
-  curl -o ${MYSQL_REPO_RPM_FILE} -Ls ${MYSQL_REPO_RPM_FILEURI}
-  MYSQL_REPO_RPM_FILE_RPMCOMMANDSTAT=$(file ${MYSQL_REPO_RPM_FILE} | egrep "(RPM v[0-9.]* bin i386/x86_64)" > /dev/null ; echo $?)
-  if [ -f ${MYSQL_REPO_RPM_FILE} -a 0 = ${MYSQL_REPO_RPM_FILE_RPMCOMMANDSTAT} ];
-  then
-    ##--@--## # 2016/07/03 仕様変更: 既に mysql57-community-release がインストールされているかどうかの条件分岐をするようにした
-    MYSQL_REPO_INSTALL_STAT=$(yum list installed mysql-community-release > /dev/null ; echo $?)
-    if [ ! ${MYSQL_REPO_INSTALL_STAT} = 0 ];
-    then
-      yum -y localinstall ${MYSQL_REPO_RPM_FILE}
-    else
-      :
-    fi
-  else
-    echo "${MYSQL_REPO_RPM_FILE} が存在しないかRPM形式ではありません"
+# MariaDBを起動してもなおTCP3306をLISTENしていなければ異常終了させる
+MARIADB_TCPLISTEN_STATUS=$(ss -lnt | egrep ":::3306" > /dev/null ; echo $?)
+if [ ! 0 = ${MARIADB_TCPLISTEN_STATUS} ];
+then
+  echo "MariaDB Start Error $(date)" | tee ${HOME}/MariaDB-ERROR.txt
   exit 1
-  fi
-  # mysql57-community-release-el7-8.noarch.rpm に含まれるリポジトリファイルを編集する
-  # (仕様) rpm -ql コマンドの結果に含まれるrepoファイルをforで回し、
-  #        バックアップを取得した上で enabled で始まる行をすべて 0 に置換する
-  mkdir -p /etc/yum.repos.d/BACKUP
-  for REPOFILES in $(rpm -ql $(basename ${MYSQL_REPO_RPM_FILE} | sed -e "s/\.rpm//") | egrep repo$ )
-  do
-    cp -p ${REPOFILES} /etc/yum.repos.d/BACKUP/
-    sed -i "/^enabled/s/1/0/g" ${REPOFILES}
-  done
-  # MySQLのバージョンに応じてenablerepoするため、リポジトリ名を MYSQLREPONAME 変数へ格納する
-  if [ 5.6 = ${MYSQLVER} -o 5.7 = ${MYSQLVER} ];
-  then
-    MYSQLREPOFILE=/etc/yum.repos.d/mysql-community.repo
-    MYSQLREPONAME=$(
-                    cat ${MYSQLREPOFILE}                         | \
-                    egrep '(^\[)'                                | \
-                    egrep $(echo ${MYSQLVER} | sed -e "s/\.//g") | \
-                    sed -e "s/\[//;s/\]//"
-                   )
-  else
-    :
-  fi
-  ################################################################################################################################
-  # MYSQLSERVER_ADDRESS 変数が、 ipコマンドの出力結果かhostsエントリーに含まれていれば
-  # mysql-community-server を、含まれていなければ mysql-community-client をインストールするため、
-  # MYSQLSERVER_ADDRESS 変数 をgrepした結果の終了ステータスを MYSQLSERVER_ADDRESS_DETERM 変数へ格納する
-  MYSQLSERVER_ADDRESS_DETERM=$(
-    for NODE_LIST in $(for NODE_LIST_TMP in $(echo $(for IF in $(ip a | egrep ^[0-9] | awk '{print $2}' | sed -e "s/://")
-    do
-    ip a show dev ${IF} | egrep '^[[:space:]]*inet[[:space:]]' | awk '{print $2}' | sed -e "s/\/[0-9]*$//" ; \
-    done) \
-    $(cat /etc/hosts | sed -e "s/[[:space:]]/\n/g"))
-    do
-      echo ${NODE_LIST_TMP}
-    done | sort | uniq); \
-    do
-      echo ${NODE_LIST}
-    done | egrep ${MYSQLSERVER_ADDRESS} > /dev/null ; echo $?
-  )
-  ################################################################################################################################
-  # MYSQLSERVER_ADDRESS_DETERM が0(ipコマンドの結果かhostsエントリーにmysqlサーバーのアドレスが含まれている)であれば
-  # mysql-community-serverを、そうでなければmysql-community-clientをインストールする。
-  if [ 0 = ${MYSQLSERVER_ADDRESS_DETERM} ];
-  then
-    yum --enablerepo=${MYSQLREPONAME} -y install mysql-community-server mysql-community-devel
-  else
-    yum --enablerepo=${MYSQLREPONAME} -y install mysql-community-client mysql-community-devel
-  fi
+fi
+
+# testデータベースを削除する
+DELETE_SCHEME=test
+DELETE_SCHEME_FIND_STATUS=$(
+                            mysql -N -s -e "SHOW DATABASES;" | \
+                            egrep "^${DELETE_SCHEME}$"       > \
+                            /dev/null                        ; \
+                            echo $?
+                           )
+if [ 0 = ${DELETE_SCHEME_FIND_STATUS} ];
+then
+  mysql -N -s -e "DROP DATABASE ${DELETE_SCHEME};"
+fi
+
+# rootユーザーにパスワードを付与する
+MARIADB_ROOT_PW=$(RAND_OPENSSL)
+MY_CNF_ROOT=${HOME}/.my.cnf
+mysql -u root -e "SET PASSWORD FOR root@localhost=PASSWORD('${MARIADB_ROOT_PW}');"
+cat << _EOL_ | tee ${MY_CNF_ROOT}
+[mysql]
+host = localhost
+password = "${MARIADB_ROOT_PW}"
+user = root
+
+[mysqldump]
+host = localhost
+password = "${MARIADB_ROOT_PW}"
+user = root
+
+[mysqladmin]
+host = localhost
+password = "${MARIADB_ROOT_PW}"
+user = root
+_EOL_
+
+MARIADB_ADDR_LIST=(
+  $(
+    mysql -N -s -e "SELECT USER,HOST,PASSWORD FROM mysql.user;" | \
+    egrep -v "(localhost|::1|$(uname -n))"                      | \
+    egrep "^root[[:space:]]"                                    | \
+    awk '{print $NF}'
+   )
+)
+
+for MARIADB_ADDR in ${MARIADB_ADDR_LIST[@]}
+do
+  mysql -e "SET PASSWORD FOR root@${MARIADB_ADDR}=PASSWORD('${MARIADB_ROOT_PW}');"
+done
+
+mysql -e "use mysql;DELETE FROM user WHERE password='';"
 }
 
-MYSQL_INIT() {
-# ここで内部的に CMS_VAL_REPLACE 関数を実行する
-CMS_VAL_REPLACE
+CMS_DATABASE_INSTALL(){
+mysql -e "CREATE DATABASE ${DB_NAME} DEFAULT CHARACTER SET utf8;"
+MARIADB_LOCALADDR_LIST=(
+  $(
+    mysql -N -s -e "SELECT USER,HOST,PASSWORD FROM mysql.user;" | \
+    egrep ^root                                                 | \
+    awk '{print $2}'
+   )
+)
+for MARIADB_ADDR in ${MARIADB_LOCALADDR_LIST[@]}
+do
+  mysql -e "GRANT ALL PRIVILEGES ON \`${DB_NAME}\`.* TO ${DB_USER}@${MARIADB_ADDR} IDENTIFIED BY \"${DB_PASS}\";"
+done
+}
 
-# mysql-community-server がインストールされているかどうかを MYSQL_SERVER_INSTALL_STAT 変数へ格納する
-MYSQL_SERVER_INSTALL_STAT=$(yum list installed | egrep mysql-community-server > /dev/null ; echo $?)
-
-# MYSQL_SERVER_INSTALL_STAT 変数が0であれば SERVERID 変数にIPアドレスの第4オクテットの数字を格納する
-if [ ${MYSQL_SERVER_INSTALL_STAT} = 0 ];
+if [ ${MARIADB_INSTALL} = YES ];
 then
-  SERVERID=$(echo ${IPADDR} | awk 'BEGIN {FS="."} {print $NF}')
+  MARIADB_INSTALL_FUNCTION
+  MARIADB_SECURE_INSTALLATION
+  CMS_DATABASE_INSTALL
 fi
 
-# MYSQL_SERVER_INSTALL_STAT 変数が0であれば my.cnfの設定を行う
-if [ ${MYSQL_SERVER_INSTALL_STAT} = 0 ];
-then
-  MYCNF=/etc/my.cnf
-  sed -i.orig '/^#/d;/^$/d'                                                  ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\explicit_defaults_for_timestamp=true\\n"           ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\query_cache_limit=1M\\n"                           ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\query_cache_min_res_unit=1024"                     ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\query_cache_size=0"                                ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\query_cache_type=ON"                               ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\user=mysql"                                        ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\binlog_direct_non_transactional_updates=Off\\n"    ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\binlog_stmt_cache_size=16384"                      ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\binlog_cache_size=16384"                           ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\binlog_format=MIXED"                               ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\innodb_autoextend_increment=1000"                  ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\innodb_log_buffer_size=16M"                        ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\innodb_log_file_size=64M"                          ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\innodb_buffer_pool_size=128M"                      ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\innodb_max_dirty_pages_pct=75"                     ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\innodb_stats_on_metadata=Off"                      ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\innodb_read_io_threads=4"                          ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\innodb_write_io_threads=4"                         ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\innodb_file_format=Barracuda"                      ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\innodb_file_per_table=1"                           ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\max_allowed_packet=512M\\n"                        ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\max_connections=151"                               ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\max_binlog_size=64M"                               ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\#binlog_ignore_db=performance_schema\\n"           ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\#binlog_ignore_db=information_schema"              ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\#binlog_ignore_db=mysql"                           ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\long_query_time=2\\n"                              ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\slow_query_log_file=/var/log/mysql/slow.log"       ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\slow_query_log=ON"                                 ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\skip-character-set-client-handshake\\n"            ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\character-set-server=${DBCHARSET}"                 ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\log-bin=/var/lib/mysql/binlog/mysqld-bin\\n"       ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\expire_logs_days=2"                                ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\#log_output=FILE"                                  ${MYCNF}
-  sed -i "/^\[mysqld\]$/a\server-id=${SERVERID}"                             ${MYCNF}
-  sed -i "/^\[mysqld_safe\]$/i\\\n"                                          ${MYCNF}
-  echo ""                                                           | tee -a ${MYCNF}
-  echo "[client]"                                                   | tee -a ${MYCNF}
-  echo "default-character-set=${DBCHARSET}"                         | tee -a ${MYCNF}
-  echo ""                                                           | tee -a ${MYCNF}
-  echo "[mysql]"                                                    | tee -a ${MYCNF}
-  echo "default-character-set=${DBCHARSET}"                         | tee -a ${MYCNF}
-  echo ""                                                           | tee -a ${MYCNF}
-  echo "[mysqldump]"                                                | tee -a ${MYCNF}
-  echo "default-character-set=${DBCHARSET}"                         | tee -a ${MYCNF}
-  echo ""                                                           | tee -a ${MYCNF}
-fi
+# ================================================================ #
 
-# MYSQL_SERVER_INSTALL_STAT 変数が0であれば mysqld を起動する (MySQL 5.6)
-if [ ${MYSQL_SERVER_INSTALL_STAT} = 0 -a ${MYSQLVER} = 5.6 ];
-then
-  mkdir -p     /var/log/mysql/
-  chown mysql. /var/log/mysql/
-  mkdir -p     /var/lib/mysql/binlog/
-  chown mysql. /var/lib/mysql/binlog/
-  systemctl start mysqld.service
-  systemctl enable mysqld.service
-fi
 
-# MYSQL_SERVER_INSTALL_STAT 変数が0であれば mysqld を起動する (MySQL 5.7)
-if [ ${MYSQL_SERVER_INSTALL_STAT} = 0 -a ${MYSQLVER} = 5.7 ];
-then
-  mv /etc/my.cnf{,.DISABLED}
-  cd /var/lib/mysql
-  mysqld                    \
-    --secure-file-priv      \
-    --initialize-insecure   \
-    --no-defaults           \
-    --user=mysql            \
-    --log-error-verbosity=3
-  mkdir -p     /var/lib/mysql/binlog/
-  chown mysql. /var/lib/mysql/binlog/
-  cd
-  mv /etc/my.cnf.DISABLED /etc/my.cnf
-  systemctl start mysqld.service
-  systemctl enable mysqld.service
-fi
+# ================================================================ #
 
-# MYSQL_SERVER_INSTALL_STAT 変数が0 かつ、MySQLのバージョンが5.6であれば 
-# mysql_secure_installation 相当の処理を行う
-if [ ${MYSQL_SERVER_INSTALL_STAT} = 0 -a ${MYSQLVER} = 5.6 ];
+# PHPパッケージのためにremiリポジトリをインストールする
+# - epelリポジトリもあわせてインストールされる
+# - CMSインストール有無にかかわらず処理を行う
+# - Apacheを選択した場合のみ「php」パッケージをインストールする
+PHP_INSTALL_FUNCTION(){
+
+# PHPバージョンを選択する変数 PHP_VERSION を綺麗にする
+# - もし PHP_VERSION 変数が空であれば PHP_VERSION に 7 を代入する
+if [ ${#PHP_VERSION} = 0 ];
 then
-  mysql -u root -e "SET PASSWORD FOR root@localhost=PASSWORD('${MYSQLROOTPW}');"
-  echo [client]                    | tee    /root/.my.cnf
-  echo user=root                   | tee -a /root/.my.cnf
-  echo password=\"${MYSQLROOTPW}\" | tee -a /root/.my.cnf
-  echo host=${MYSQLSERVER_ADDRESS} | tee -a /root/.my.cnf
-  echo [mysqladmin]                | tee -a /root/.my.cnf
-  echo user=root                   | tee -a /root/.my.cnf
-  echo password=\"${MYSQLROOTPW}\" | tee -a /root/.my.cnf
-  echo host=${MYSQLSERVER_ADDRESS} | tee -a /root/.my.cnf
-  echo [mysqldump]                 | tee -a /root/.my.cnf
-  echo user=root                   | tee -a /root/.my.cnf
-  echo password=\"${MYSQLROOTPW}\" | tee -a /root/.my.cnf
-  echo host=${MYSQLSERVER_ADDRESS} | tee -a /root/.my.cnf
-  mysql -e "SET PASSWORD FOR root@127.0.0.1=PASSWORD('${MYSQLROOTPW}');"
-  mysql -e "SET PASSWORD FOR root@\"::1\"=PASSWORD('${MYSQLROOTPW}');"
-  # MYSQLSERVER_ADDRESS 変数がlocalhostでなかった場合の処理を行う
-  MYSQLSERVER_ADDRESS_STATUS=$(echo ${MYSQLSERVER_ADDRESS} | egrep '(localhost|127.0.0.1|::1)' > /dev/null ; echo $?)
-  if [ ! 0 ${MYSQLSERVER_ADDRESS_STATUS} ];
+  PHP_VERSION=7
+else
+  # - もし PHP_VERSION 変数に5か7が代入されていなければ7を強制代入する
+  PHPVERSION_GREP_STATUS=$(
+                           echo ${PHP_VERSION}    | \
+                           egrep "^([57])$"       > \
+                           /dev/null 2>&1         ; \
+                           echo $?
+                          )
+  if [ ! ${PHPVERSION_GREP_STATUS} = 0 ];
   then
-    mysql -e "SET PASSWORD FOR root@${MYSQLSERVER_ADDRESS}=PASSWORD('${MYSQLROOTPW}');"
+    PHP_VERSION=7
   fi
-  mysql -e "delete from mysql.user where password='';"
-  mysql -e 'FLUSH PRIVILEGES;'
 fi
 
-# MYSQL_SERVER_INSTALL_STAT 変数が0 かつ、MySQLのバージョンが5.7であれば 
-# mysql_secure_installation 相当の処理を行う
-if [ ${MYSQL_SERVER_INSTALL_STAT} = 0 -a ${MYSQLVER} = 5.7 ];
+
+yum -y install ${REMI_REPO_URI}
+
+# epelリポジトリのenabledを0にする
+EPELREPO_FILE=${YUMREPODIR}/epel.repo
+EPELREPO_BACKUPFILE=${YUMREPODIR}/BACKUP/epel.repo.ORIG
+mkdir -p ${YUMREPODIR}/BACKUP
+cp -p ${EPELREPO_FILE} ${EPELREPO_BACKUPFILE}
+sed -i "/^[[:space:]]\{0,\}enabled[[:space:]]\{0,\}=[[:space:]]\{0,\}1/s/1/0/g" \
+  ${YUMREPODIR}/epel.repo
+
+
+PHPREPO=$(
+          ls ${YUMREPODIR}                         | \
+          egrep "remi-php${PHPVERSION}[0-9]{1,}"   | \
+          sort -n                                  | \
+          tail -n 2                                | \
+          head -n 1                                | \
+          sed -e "s/\.repo//"
+         )
+PACKAGELIST=(
+             $(
+               yum --enablerepo=${PHPREPO} list    | \
+               egrep ^php                          | \
+               egrep -v "(pecl|php-twig-ctwig|snmp|odbc|yac|smbclient|sqlsrv|php-mysql\.$(uname -m)|phalcon2|php\.$(uname -m))" | \
+               egrep ${PHPREPO}$                   | \
+               awk '{print $1}'
+               )
+             )
+
+WEBSERVER_UPPERCASE=$(echo ${WEBSERVER} | sed -e "s/\(.*\)/\U\1/")
+WEBSERVER=${WEBSERVER_UPPERCASE}
+if [ ${WEBSERVER} = NGINX ];
 then
-  echo "USE mysql; SET PASSWORD FOR root@localhost=PASSWORD('${MYSQLROOTPW}');" | \
-    tee /root/MYSQLCOMMAND.txt
-  mysql < /root/MYSQLCOMMAND.txt
-  echo [client]                           | tee    /root/.my.cnf
-  echo user=root                          | tee -a /root/.my.cnf
-  echo password=\"${MYSQLROOTPW}\"        | tee -a /root/.my.cnf
-  echo host=${MYSQLSERVER_ADDRESS}        | tee -a /root/.my.cnf
-  echo [mysqladmin]                       | tee -a /root/.my.cnf
-  echo user=root                          | tee -a /root/.my.cnf
-  echo password=\"${MYSQLROOTPW}\"        | tee -a /root/.my.cnf
-  echo host=${MYSQLSERVER_ADDRESS}        | tee -a /root/.my.cnf
-  echo [mysqldump]                        | tee -a /root/.my.cnf
-  echo user=root                          | tee -a /root/.my.cnf
-  echo password=\"${MYSQLROOTPW}\"        | tee -a /root/.my.cnf
-  echo host=${MYSQLSERVER_ADDRESS}        | tee -a /root/.my.cnf
+yum -y --enablerepo=epel,remi,${PHPREPO} install ${PACKAGELIST[@]}
 fi
 
-# MYSQL_SERVER_INSTALL_STAT 変数が0であれば mytopの設定を行う
-if [ ${MYSQL_SERVER_INSTALL_STAT} = 0 ];
+if [ ${WEBSERVER} = APACHE ];
 then
-  cat /root/.my.cnf                       | \
-    grep ^[up]                            | \
-    sort -nr                              | \
-    uniq                                  | \
-    sed -e "s/word//g;s/\"//g"            | \
-    tee /root/.mytop
-  echo db=mysql | tee -a /root/.mytop
+PACKAGELIST=( ${PACKAGELIST[@]} php.$(uname -m) )
+yum -y --enablerepo=epel,remi,${PHPREPO} install ${PACKAGELIST[@]}
 fi
 
-#   (A1) MYSQL_SERVER_INSTALL_STATが 0 (mysql-community-server がインストールされている) の場合 :
-#     かつ 変数 MYSQLDBNAME が空欄の場合 :
-#       かつ 変数 ADMINUSER_VHOST_CMS_INSTALL が on の場合 :
-#         かつ 変数 ADMINUSER_VHOST_CMS_TOOL が wordpress の場合 :
-#           MYSQLDBNAME 変数は強制的に wpdb0001 となる。
-if [ ${MYSQL_SERVER_INSTALL_STAT} = 0 ];
-then
-  if [ ${#MYSQLDBNAME} = 0 ];
+# php.ini の ;date.timezone = を置換する
+PHPINI_DIR=/etc
+PHPINI_BACKUPDIR=${PHPINI_DIR}/BACKUP
+PHPINI_FILE=php.ini
+PHPINI_BACKUPFILE=${PHPINI_BACKUPDIR}/${PHPINI_FILE}.ORIG
+mkdir -p ${PHPINI_BACKUPDIR}
+cp -p ${PHPINI_DIR}/${PHPINI_FILE} ${PHPINI_BACKUPFILE}
+sed -i "/\;date.timezone/a date.timezone\ =\ ${PHP_TZ_REGION}\/${PHP_TZ_CITY}" \
+  ${PHPINI_DIR}/${PHPINI_FILE}
+
+}
+
+
+# ================================================================ #
+
+# ================================================================ #
+
+# バーチャルホスト設定を行う CREATE_VHOST 関数
+CREATE_VHOST(){
+mkdir -p     ${VHOSTDIR}
+mkdir -p     ${DROOTDIR}
+chown -R     ${WEBMASTER_USER}:${WEBMASTER_GROUP} ${DROOTDIR}
+chown        ${WEBMASTER_USER}:${WEBMASTER_GROUP} ${VHOSTDIR}
+chmod -R g+w ${DROOTDIR}
+chmod    g+w ${VHOSTDIR}
+mkdir -p     ${VHLOGDIR}
+}
+
+# ================================================================ #
+
+# Let's Encrypt パッケージをインストールする LETSENCRYPT_INSTALL 関数
+LETSENCRYPT_INSTALL(){
+yum -y --enablerepo=epel install certbot
+curl -o /usr/bin/certbot-auto https://dl.eff.org/certbot-auto
+chmod 755 /usr/bin/certbot-auto
+certbot-auto --help
+}
+
+# ================================================================ #
+
+
+# ================================================================ #
+
+# nginxのバーチャルホストを作成する VHOSTCONF_CREATE_NGINX 関数
+VHOSTCONF_CREATE_NGINX(){
+  # Let's Encrypt のための一時的なconfigを生成する
+  TMP_VHOSTCONF_CREATE_NGINX
+  # nginx起動 (起動していたら再起動)
+  NGINX_START
+  # certbot-auto による証明書取得 (名前解決の判断は関数内で行っている)
+  CREATE_CERT
+  # 一時的なconfigを削除(mv)する
+  TMP_VHOSTCONF_DISABLE_NGINX
+  # 名前解決の成否とWordPressインストール有無によって異なるconfigを生成する
+  if [ ${FQDN_DIG_STATUS_RESULT} = YES ];
   then
-    if [ ${ADMINUSER_VHOST_CMS_INSTALL} = on ];
+    # http -> https へリダイレクトするconfigを生成する
+    VHOST_CREATECONF_HTTP_REDIRECT_NGINX
+    if [ ${WPINSTALL_CHECK} = YES ];
     then
-      if [ 0 = $(echo ${CMS} | egrep -i wordpress > /dev/null ; echo $?) ];
-      then
-        MYSQLDBNAME=wpdb0001
-        mysql -e "CREATE DATABASE ${MYSQLDBNAME};"
-        mysql -e "GRANT ALL PRIVILEGES ON \`${MYSQLDBNAME}\`.* TO ${DBUSERNAME}@${MYSQLSERVER_ADDRESS} IDENTIFIED BY \"${DBUSERPASS}\";"
-      fi
-    fi
-  fi
-fi
-
-#	#   (A2) MYSQL_SERVER_INSTALL_STATが 0 (mysql-community-server がインストールされている) の場合 :
-#	#     かつ 変数 MYSQLDBNAME が空欄の場合 :
-#	#       かつ 変数 ADMINUSER_VHOST_CMS_INSTALL が on の場合 :
-#	#         かつ 変数 ADMINUSER_VHOST_CMS_TOOL が XXXXXXXX の場合 :
-#	#           MYSQLDBNAME 変数は強制的に XXDB0001 となる(未実装)。
-#	if [ ${MYSQL_SERVER_INSTALL_STAT} = 0 ];
-#	then
-#	  if [ ${#MYSQLDBNAME} = 0 ];
-#	  then
-#		if [ ${ADMINUSER_VHOST_CMS_INSTALL} = on ];
-#		then
-#		  if [ ! 0 = $(echo ${CMS} | egrep -i wordpress > /dev/null ; echo $?) ];
-#		  then
-#			MYSQLDBNAME=XXDB0001
-#			mysql -e "CREATE DATABASE ${MYSQLDBNAME};"
-#		  fi
-#		fi
-#	  fi
-#	fi
-
-#   (A3) MYSQL_SERVER_INSTALL_STATが 0 (mysql-community-server がインストールされている) の場合 :
-#     かつ 変数 MYSQLDBNAME が空欄の場合 :
-#       かつ 変数 ADMINUSER_VHOST_CMS_INSTALL が off の場合 :
-#         MYSQLDBNAME 変数は強制的に mydb0001 となる。
-if [ ${MYSQL_SERVER_INSTALL_STAT} = 0 ];
-then
-  if [ ${#MYSQLDBNAME} = 0 ];
-  then
-    if [ ${ADMINUSER_VHOST_CMS_INSTALL} = off ];
-    then
-      MYSQLDBNAME=mydb0001
-      mysql -e "CREATE DATABASE ${MYSQLDBNAME};"
-      mysql -e "GRANT ALL PRIVILEGES ON \`${MYSQLDBNAME}\`.* TO ${DBUSERNAME}@${MYSQLSERVER_ADDRESS} IDENTIFIED BY \"${DBUSERPASS}\";"
-    fi
-  fi
-fi
-
-#   (A4) MYSQL_SERVER_INSTALL_STATが 0 (mysql-community-server がインストールされている) の場合 :
-#     かつ 変数 MYSQLDBNAME が空欄でない場合 :
-#       MYSQLDBNAME 変数に代入されたDB名のデータベースを作成する。
-if [ ${MYSQL_SERVER_INSTALL_STAT} = 0 ];
-then
-  if [ ${#MYSQLDBNAME} = 0 ];
-  then
-    mysql -e "CREATE DATABASE ${MYSQLDBNAME};"
-    mysql -e "GRANT ALL PRIVILEGES ON \`${MYSQLDBNAME}\`.* TO ${DBUSERNAME}@${MYSQLSERVER_ADDRESS} IDENTIFIED BY \"${DBUSERPASS}\";"
-  fi
-fi
-
-#   (B1) MYSQLSERVER_ADDRESS=localhost でない(リモートホストである)場合 :
-#     かつ 変数 MYSQLDBNAME が空欄の場合 :
-#       B1-1: MySQLクライアントはインストールする。(この時点でされている)
-#       B1-2: ADMINUSER_VHOST_CMS_INSTALL が on であってもCMSのインストールはスキップする。
-#             (ADMINUSER_VHOST_CMS_INSTALL 変数を off に上書きする)
-if [ ${MYSQL_SERVER_INSTALL_STAT} = 1 ];
-then
-  if [ ! ${#MYSQLDBNAME} = 0 ];
-  then
-    ADMINUSER_VHOST_CMS_INSTALL=off
-  fi
-fi
-
-#   (B2) MYSQLSERVER_ADDRESS=localhost でない(リモートホストである)場合 :
-#     かつ 変数 MYSQLDBNAME が空欄でない場合 :
-#       B2-1: MySQLクライアントはインストールする。
-#       B2-2: mysqlコマンドで接続チェックをする。
-#         B2-2 正常終了: ADMINUSER_VHOST_CMS_INSTALL が on であればCMSインストールを続行するので同変数を上書きしない。
-#         B2-2 異常終了: ADMINUSER_VHOST_CMS_INSTALL が on であってもCMSのインストールはスキップするので同変数を上書きする。
-if [ ${MYSQL_SERVER_INSTALL_STAT} = 1 ];
-then
-  if [ ! ${#MYSQLDBNAME} = 0 ];
-  then
-    # ここでリモートホストのMySQL接続を行い終了ステータスを判定する
-    MYSQL_CON_STAT=$(
-                     mysql                        \
-                       -h ${MYSQLSERVER_ADDRESS}  \
-                       -u ${DBUSERNAME}           \
-                       -p ${DBUSERPASS}           \
-                       -N                         \
-                       -s                         \
-                       -e "SHOW DATABASES;"     | \
-                       egrep ${MYSQLDBNAME}     > /dev/null ; echo $?
-    )
-    if [ ${MYSQL_CON_STAT} = 0 ];
-    then
-      :
+      # WordPress向けのconfig(https)を生成する
+      VHOST_CREATECONF_HTTPS_NGINX_WP
     else
-      ADMINUSER_VHOST_CMS_INSTALL=off
+      # 通常のconfig(https)を生成する
+      VHOST_CREATECONF_HTTPS_NGINX
+    fi
+  else
+    if [ ${WPINSTALL_CHECK} = YES ];
+    then
+      # WordPress向けのconfig(http)を生成する
+      VHOST_CREATECONF_HTTP_NGINX_WP
+    else
+      # 通常のconfig(http)を生成する
+      VHOST_CREATECONF_HTTP_NGINX
     fi
   fi
-fi
+  PHPFPM_START
+}
 
-# 管理者ユーザーの .my.cnf .mytop を作成する
-if [ ${MYSQL_SERVER_INSTALL_STAT} = 0 ];
+TMP_VHOSTCONF_CREATE_NGINX(){
+TMP_VHOSTCONF=${VHOSTCONF_DIR}/0000_TMP_${FQDN}.conf
+cat << _EOL_ | tee ${TMP_VHOSTCONF}
+server {
+    listen       80;
+    server_name  ${FQDN};
+    location / {
+        root   /home/vhosts/${FQDN}/DocumentRoot ;
+        index  index.html index.htm ;
+    }
+}
+_EOL_
+
+echo ${FQDN} | tee ${DROOTDIR}/index.html
+}
+
+CREATE_CERT(){
+if [ ${FQDN_DIG_STATUS_RESULT} = YES ];
 then
-  echo [client]                           | tee    /home/${ADMINUSERNAME}/.my.cnf
-  echo user=${DBUSERNAME}                 | tee -a /home/${ADMINUSERNAME}/.my.cnf
-  echo password=\"${DBUSERPASS}\"         | tee -a /home/${ADMINUSERNAME}/.my.cnf
-  echo host=${MYSQLSERVER_ADDRESS}        | tee -a /home/${ADMINUSERNAME}/.my.cnf
-  echo [mysqladmin]                       | tee -a /home/${ADMINUSERNAME}/.my.cnf
-  echo user=${DBUSERNAME}                 | tee -a /home/${ADMINUSERNAME}/.my.cnf
-  echo password=\"${DBUSERPASS}\"         | tee -a /home/${ADMINUSERNAME}/.my.cnf
-  echo host=${MYSQLSERVER_ADDRESS}        | tee -a /home/${ADMINUSERNAME}/.my.cnf
-  echo [mysqldump]                        | tee -a /home/${ADMINUSERNAME}/.my.cnf
-  echo user=${DBUSERNAME}                 | tee -a /home/${ADMINUSERNAME}/.my.cnf
-  echo password=\"${DBUSERPASS}\"         | tee -a /home/${ADMINUSERNAME}/.my.cnf
-  echo host=${MYSQLSERVER_ADDRESS}        | tee -a /home/${ADMINUSERNAME}/.my.cnf
-  cat /home/${ADMINUSERNAME}/.my.cnf      | \
-    grep ^[up]                            | \
-    sort -nr                              | \
-    uniq                                  | \
-    sed -e "s/word//g;s/\"//g"            | \
-    tee /home/${ADMINUSERNAME}/.mytop
-  echo db=${MYSQLDBNAME}                  | \
-    tee -a /home/${ADMINUSERNAME}/.mytop
+  certbot-auto           \
+    certonly             \
+    --webroot            \
+    --agree-tos          \
+    --renew-by-default   \
+    -m ${ADMINUSER_MAIL} \
+    -w ${DROOTDIR}       \
+    -d ${FQDN}           \
+    -n
 fi
-chown -R ${ADMINUSERNAME}. /home/${ADMINUSERNAME}
 }
 
-PHPVER_SELECT() {
-  # (仕様変更) PHPは5系 or 7系を選択し、デフォルト(PHPVERSION変数が空の場合)は7系(7.0)とする
-  # PHPVERSION 変数が空であれば PHPVERSION_DEFAULT 変数で上書きする
-  PHPVERSION_DEFAULT=7.0
-  PHPVERSION_NEWEST=7.1
-  if [ ${#PHPVERSION} = 0 ];
-  then
-    PHPVERSION=${PHPVERSION_DEFAULT}
-  fi
-
-  PHP5_VAL_RESULT=$(echo ${PHPVERSION} | egrep "^(5|5[0-9]|5.[0-9])$" > /dev/null ; echo $?)
-  if [ ${PHP5_VAL_RESULT} = 0 ];
-  then
-    PHPVERSION=5
-  fi
-
-  PHP70_VAL_RESULT=$(echo ${PHPVERSION} | egrep "^(7|70|7.0)$" > /dev/null ; echo $?)
-  if [ ${PHP70_VAL_RESULT} = 0 ];
-  then
-    PHPVERSION=7.0
-  fi
-
-  PHP71_VAL_RESULT=$(echo ${PHPVERSION} | egrep "^(71|7.1)$" > /dev/null ; echo $?)
-  if [ ${PHP71_VAL_RESULT} = 0 ];
-  then
-    PHPVERSION=7.1
-  fi
-
-  PHP_OTHER_VAL_RESULT=$(echo ${PHPVERSION} | egrep -v "^([57]$|[57]\.[0-9.]{1,}$)" > /dev/null ; echo $?)
-  if [ ${PHP_OTHER_VAL_RESULT} = 0 ];
-  then
-    PHPVERSION=${PHPVERSION_DEFAULT}
-  fi
+TMP_VHOSTCONF_DISABLE_NGINX(){
+NGINX_BACKUPDIR=/etc/nginx/conf.d/BACKUP
+mkdir -p ${NGINX_BACKUPDIR}
+mv ${TMP_VHOSTCONF} ${NGINX_BACKUPDIR}
+NGINX_START
 }
 
-PHP_AND_PERL_INSTALL() {
-  [ ${PHPVERSION} = 5   ] && PHPREMIREPO=remi-php56
-  [ ${PHPVERSION} = 7.0 ] && PHPREMIREPO=remi-php70
-  [ ${PHPVERSION} = 7.1 ] && PHPREMIREPO=remi
-
-  PHP_DEP_PACKAGES=(
-    gd-last
-    fontconfig
-    fontpackages-filesystem
-    jbigkit-libs
-    fastlz
-    libX11
-    libX11-common
-    libXau
-    libXpm
-    libjpeg-turbo
-    libpng
-    libtiff
-    libvpx
-    libxcb
-    libicu
-    libzip-last
-  )
-
-  PHP_PACKAGES=(
-    php-cli
-    php-common
-    php-gd
-    php-mbstring
-    php-mysqlnd
-    php-opcache
-    php-pdo
-    php-pear
-    php-pecl-apcu
-    php-pecl-igbinary
-    php-pecl-jsonc
-    php-pecl-memcache
-    php-pecl-memcached
-    php-pecl-msgpack
-    php-pecl-zip
-    php-process
-    php-xml
-    php-xmlrpc
-  )
-
-  # WEBSERVER 変数が httpd だったら、mod_fcgidパッケージも追加する
-  if [ ${WEBSERVER} = httpd ];
-  then
-    PHP_PACKAGES=("${PHP_PACKAGES[@]}" mod_fcgid)
-  fi
-
-  # WEBSERVER 変数が nginx だったら、php-fpmパッケージも追加する
-  if [ ${WEBSERVER} = nginx ];
-  then
-    PHP_PACKAGES=("${PHP_PACKAGES[@]}" php-fpm)
-  fi
-
-  # PHPのバージョンが最新であれば、 配列 PHP_PACKAGES の中身を 配列 PHP_NEWEST_PACKAGES へ入れなおす
-  if [ ${PHPVERSION} = ${PHPVERSION_NEWEST} ];
-  then
-    PHP_NEWEST_NUM=php$(echo ${PHPVERSION} | sed -e "s/\.//")
-    PHP_NEWEST_PACKAGES=($(echo "${PHP_PACKAGES[@]}" | sed -e "s/php/${PHP_NEWEST_NUM}-php/g"))
-  fi
-
-  # PHPのバージョンが最新であれば PHP_NEWEST_PACKAGES を、そうでなければ PHP_PACKAGES をインストールする
-  if [ ${PHPVERSION} = ${PHPVERSION_NEWEST} ];
-  then
-    yum -y --enablerepo=remi           install ${PHP_DEP_PACKAGES[@]}
-    yum -y --enablerepo=remi           install ${PHP_NEWEST_PACKAGES[@]}
-  else
-    yum -y --enablerepo=remi           install ${PHP_DEP_PACKAGES[@]}
-    yum -y --enablerepo=${PHPREMIREPO} install ${PHP_PACKAGES[@]}
-  fi
-
-  yum -y install perl perl-FCGI perl-Crypt-DSA perl-Cache-Cache
-
-  # HHVM_INSTALL 関数を呼び出す
-  HHVM_INSTALL
+VHOST_CREATECONF_HTTP_REDIRECT_NGINX(){
+VHOST_REDIRECT_CONF=${VHOSTCONF_DIR}/0000_${FQDN}_REDIRECT.conf
+cat << _EOL_ | tee ${VHOST_REDIRECT_CONF}
+server {
+        listen 80;
+        server_name _FQDN_;
+        rewrite ^(.*)$ https://_FQDN_$request_uri permanent; # SSL ONLY
+}
+_EOL_
+sed -i "s/_FQDN_/${FQDN}/g" ${VHOST_REDIRECT_CONF}
 }
 
-HHVM_INSTALL() {
-  HHVM_REPO_BASEURI=http://mirrors.linuxeye.com/hhvm-repo/7/x86_64
-  HHVM_RPMFILE=$(curl -Ls ${HHVM_REPO_BASEURI} | egrep "href=\"hhvm-[0-9\.-]{1,}el7.centos.x86_64.rpm" | \
-                   sed -e "s/<t[rd]>//g;
-                     s/<\/t[rd]>//g;
-                     s/<a href=//g;
-                     s/<\/a>//g;
-                     s/title=//g;
-                     s/\"//g;
-                     s/[<>]/ /g;
-                     s/[[:space:]][0-9]*M//g" | sort -k 4 -nr | head -n 1 | awk '{print $1}')
+VHOST_CREATECONF_HTTPS_NGINX(){
+VHOST_HTTPS_CONF=${VHOSTCONF_DIR}/0000_${FQDN}_HTTPS.conf
+cat << _EOL_ | tee ${VHOST_HTTPS_CONF}
+server {
+    listen       443 ssl;
+    server_name  _FQDN_;
 
-  HHVM_REQ_PACKAGES=(
-    ImageMagick-devel
-    binutils-devel
-    boost-devel
-    bzip2-devel
-    cmake
-    cpp
-    elfutils-libelf-devel
-    enca
-    expat-devel
-    gcc-c++
-    git
-    glog-devel
-    gmp-devel
-    gperf
-    jemalloc-devel
-    libcap-devel
-    libcurl-devel
-    libdwarf-devel
-    libedit-devel
-    libevent-devel
-    libicu-devel
-    libjpeg-turbo-devel
-    libmcrypt-devel
-    libmemcached-devel
-    libpng-devel
-    libvpx-devel
-    libxml2-devel
-    libxslt-devel
-    libxslt-devel
-    libyaml
-    libyaml-devel
-    libzip-devel
-    lz4-devel
-    make
-    numactl-devel
-    ocaml
-    oniguruma-devel
-    openldap-devel
-    openssl-devel
-    pcre-devel
-    psmisc
-    readline-devel
-    sqlite-devel
-    tbb-devel
-    unixODBC-devel
-    uw-imap-devel
-  )
+    ssl_certificate      /etc/letsencrypt/live/_FQDN_/fullchain.pem;
+    ssl_certificate_key  /etc/letsencrypt/live/_FQDN_/privkey.pem;
 
-  yum -y --enablerepo=epel install ${HHVM_REQ_PACKAGES[@]}
-  yum -y install ${HHVM_REPO_BASEURI}/${HHVM_RPMFILE}
+    ssl_session_cache shared:SSL:1m;
+    ssl_session_timeout  5m;
+    
+    ssl_protocols TLSv1 TLSv1.1 TLSv1.2;
 
-  # hhvm.service ファイルを /usr/lib/systemd/system から /etc/systemd/system へコピーして待受ポートを変更する
-  SYSTEMD_SERVICEFILE_SRCDIR=/usr/lib/systemd/system
-  SYSTEMD_SERVICEFILE_DSTDIR=/etc/systemd/system
-  SYSTEMD_SERVICENAME_HHVM=hhvm.service
-  cp -p ${SYSTEMD_SERVICEFILE_SRCDIR}/${SYSTEMD_SERVICENAME_HHVM} ${SYSTEMD_SERVICEFILE_DSTDIR}/${SYSTEMD_SERVICENAME_HHVM}
-  sed -i "/-vServer.Port=/s/9001/${HHVM_TCPPORT}/" ${SYSTEMD_SERVICEFILE_DSTDIR}/${SYSTEMD_SERVICENAME_HHVM}
+    ssl_ciphers "ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-SHA384:ECDHE-RSA-AES256-SHA384:ECDHE-ECDSA-AES128-SHA256:ECDHE-RSA-AES128-SHA256";
 
-  # hhvmの実行ユーザーを ADMINUSERNAME 変数へ置換する
-  sed -i "s/nginx/${ADMINUSERNAME}/g" ${SYSTEMD_SERVICEFILE_DSTDIR}/${SYSTEMD_SERVICENAME_HHVM}
+    ssl_prefer_server_ciphers   on;
 
-  # /etc/hhvm/server.ini も待受ポートを変更する
-  mkdir -p /etc/hhvm/BACKUP
-  cp -p /etc/hhvm/server.ini /etc/hhvm/BACKUP/server.ini.orig
-  sed -i "/^hhvm.server.port/s/9001/${HHVM_TCPPORT}/" /etc/hhvm/server.ini
+    location / {
+        root   /home/vhosts/_FQDN_/DocumentRoot ;
+        index  index.html index.htm index.php ;
+    }
 
-  # /etc/hhvm/server.ini のタイムゾーンを Asia/Tokyo へ変更する
-  sed -i "/^date.timezone/s/[[:alnum:]\/]*$/${PHP_TZ_REGION}\/${PHP_TZ_CITY}/" /etc/hhvm/server.ini
+    error_page   500 502 503 504  /50x.html;
+    location = /50x.html {
+        root   /usr/share/nginx/html;
+    }
 
-  systemctl enable hhvm
+    location ~ /\.ht {
+        deny  all;
+    }
+    location ~ [^/]\.php(/|$) {
+        root   /home/vhosts/_FQDN_/DocumentRoot ;
+        fastcgi_split_path_info ^(.+?\.php)(/.*)$;
+        if (!-f \$document_root\$fastcgi_script_name) {
+            return 404;
+        }
+    fastcgi_pass                  127.0.0.1:9000;
+    fastcgi_index                 index.php;
+    fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
+    include                       fastcgi_params;
+    fastcgi_buffers               256 128k;
+    fastcgi_buffer_size           128k;
+    fastcgi_intercept_errors      on;
+    fastcgi_read_timeout          120s;
+    }
+}
+_EOL_
 
-  # CentOS7 は再起動で /var/run 以下の勝手ディレクトリを削除しやがるので対策。
-  mkdir -p /var/{log,run}/hhvm/
-  chown -R root:${ADMINGROUPNAME} /var/{log,run}/hhvm/
-  mkdir -p /etc/tmpfiles.d/
-  echo "d /var/run/hhvm 0755 ${ADMINUSERNAME} ${ADMINUSERNAME}" | tee /etc/tmpfiles.d/hhvm.conf
+sed -i "s/_FQDN_/${FQDN}/g" ${VHOST_HTTPS_CONF}
 
+PHPFPM_START
 }
 
-PHP_INIT() {
-  # PHPのバージョンが最新であれば、PHP関連のPATHを通し、 php.iniのシンボリックリンクを /etc に張る。 そしてタイムゾーンを追記する。
-  if [ ${PHPVERSION} = ${PHPVERSION_NEWEST} ];
-  then
-    cp -p /etc/profile{,.ORIG}
-    echo "" | tee -a /etc/profile
-    echo source /opt/remi/${PHP_NEWEST_NUM}/enable | tee -a /etc/profile
-    ln -s /etc/opt/remi/${PHP_NEWEST_NUM}/php.ini /etc
-    cp -p /etc/opt/remi/${PHP_NEWEST_NUM}/php.ini{,.ORIG}
-    sed -i "/\;date.timezone/a date.timezone\ =\ ${PHP_TZ_REGION}\/${PHP_TZ_CITY}" \
-      /etc/opt/remi/${PHP_NEWEST_NUM}/php.ini
-  else
-    cp -p /etc/php.ini{,.ORIG}
-    sed -i "/\;date.timezone/a date.timezone\ =\ ${PHP_TZ_REGION}\/${PHP_TZ_CITY}" /etc/php.ini
-  fi
+VHOST_CREATECONF_HTTPS_NGINX_WP(){
+VHOST_HTTPS_WP_CONF=${VHOSTCONF_DIR}/0000_${FQDN}_WPHTTPS.conf
+cat << _EOL_ | tee ${VHOST_HTTPS_WP_CONF}
+server {
+    listen       443 ssl;
+    server_name  _FQDN_;
 
-  if [ ${WEBSERVER} = nginx ];
-  then
-    if [ ${PHPVERSION} = ${PHPVERSION_NEWEST} ];
-    then
-      PHPFPM_WWWCONFDIR=/etc/opt/remi/${PHP_NEWEST_NUM}/php-fpm.d
-      PHPFPM_WWWCONF=${PHPFPM_WWWCONFDIR}/www.conf
-      PHPFPM_USERCONF=${PHPFPM_WWWCONFDIR}/${ADMINUSERNAME}.conf
-    else
-      PHPFPM_WWWCONFDIR=/etc/php-fpm.d
-      PHPFPM_WWWCONF=${PHPFPM_WWWCONFDIR}/www.conf
-      PHPFPM_USERCONF=${PHPFPM_WWWCONFDIR}/${ADMINUSERNAME}.conf
-    fi
-    mkdir -p ${PHPFPM_WWWCONFDIR}/BACKUP
-    cp -p ${PHPFPM_WWWCONF} ${PHPFPM_WWWCONFDIR}/BACKUP/
-    mv ${PHPFPM_WWWCONF} ${PHPFPM_USERCONF}
-    sed -i "/^\[www\]/s/www/${ADMINUSERNAME}/g" ${PHPFPM_USERCONF}
-    sed -i "/^[ug][[:alnum:]]*[[:space:]]=/s/[[:alnum:]]*$/${ADMINUSERNAME}/g" ${PHPFPM_USERCONF}
-    sed -i "/^listen[[:space:]]/s/[[:alnum:]\.:]*$/\/var\/run\/php-fpm-${ADMINUSERNAME}.sock/" ${PHPFPM_USERCONF}
-    sed -i "/^listen\.allowed_clients/d" ${PHPFPM_USERCONF}
-    sed -i "/^\[${ADMINUSERNAME}\]/a listen.mode = 0666" ${PHPFPM_USERCONF}
-  fi
+    ssl_certificate      /etc/letsencrypt/live/_FQDN_/fullchain.pem;
+    ssl_certificate_key  /etc/letsencrypt/live/_FQDN_/privkey.pem;
 
-  # WEBサーバーがhttpdであれば、ユーザー用のphp.iniをコピーする
-  if [ ${WEBSERVER} = httpd ];
-  then
-    if [ ${PHPVERSION} = ${PHPVERSION_NEWEST} ];
-    then
-      cp -p /etc/opt/remi/${PHP_NEWEST_NUM}/php.ini /home/${ADMINUSERNAME}/etc
-    else
-      cp -p /etc/php.ini /home/${ADMINUSERNAME}/etc
-    fi
-  fi
+    ssl_session_cache shared:SSL:1m;
+    ssl_session_timeout  5m;
+    
+    ssl_protocols TLSv1 TLSv1.1 TLSv1.2;
+
+    ssl_ciphers "ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-SHA384:ECDHE-RSA-AES256-SHA384:ECDHE-ECDSA-AES128-SHA256:ECDHE-RSA-AES128-SHA256";
+
+    ssl_prefer_server_ciphers   on;
+
+    access_log  /home/vhosts/_FQDN_/logs/NGINX/access.log main;
+    error_log   /home/vhosts/_FQDN_/logs/NGINX/error.log warn;
+
+    # rewrite ^(.*)$ https://_FQDN_\$request_uri permanent; # SSL ONLY
+    charset UTF-8;
+    client_max_body_size 16M;
+    root  /home/vhosts/_FQDN_/DocumentRoot;
+    index index.php index.html index.htm;
+
+    rewrite /wp-admin$ \$scheme://\$host\$uri/ permanent;
+
+    location / {
+        try_files \$uri \$uri/ /index.php?\$args;
+    }
+
+    location = /favicon.ico {
+        log_not_found off;
+        access_log off;
+    }
+
+    location ~* /\.well-known {
+        allow all;
+    }
+
+    location ~* /\. {
+        deny all;
+    }
+
+    location ~* /(?:uploads|files)/.*\.php$ {
+        deny all;
+    }
+
+    location ~* /wp-login\.php|/wp-admin/((?!admin-ajax\.php).)*$ {
+
+        satisfy any;
+        allow 0.0.0.0/0;
+        allow 127.0.0.1;
+          deny all;
+          auth_basic "basic authentication";
+          auth_basic_user_file  "/home/vhosts/_FQDN_/.htpasswd";
+
+        location ~ [^/]\.php(/|$) {
+
+            fastcgi_split_path_info ^(.+?\.php)(/.*)$;
+            if (!-f \$document_root\$fastcgi_script_name) {
+                return 404;
+            }
+            fastcgi_pass 127.0.0.1:9000;
+            fastcgi_index index.php;
+            fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
+            include fastcgi_params;
+            fastcgi_buffers 256 128k;
+            fastcgi_buffer_size 128k;
+            fastcgi_intercept_errors on;
+            fastcgi_read_timeout 120s;
+
+        }
+
+    }
+
+    location ~ [^/]\.php(/|$) {
+
+        fastcgi_split_path_info ^(.+?\.php)(/.*)$;
+        if (!-f \$document_root\$fastcgi_script_name) {
+                return 404;
+        }
+        fastcgi_pass 127.0.0.1:9000;
+        fastcgi_index index.php;
+        fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
+        include fastcgi_params;
+        fastcgi_buffers 256 128k;
+        fastcgi_buffer_size 128k;
+        fastcgi_intercept_errors on;
+        fastcgi_read_timeout 120s;
+
+        set \$do_not_cache 1; ## page cache
+        set \$device "pc";
+
+        if (\$request_method = POST) {
+            set \$do_not_cache 1;
+        }
+
+        if (\$query_string != "") {
+            set \$do_not_cache 1;
+        }
+
+        if (\$http_cookie ~* "comment_author|wordpress_[a-f0-9]+|wp-postpass|wordpress_no_cache|wordpress_logged_in") {
+            set \$do_not_cache 1;
+        }
+
+        if (\$request_uri ~* "(/wp-admin/|/xmlrpc.php|/wp-(app|cron|login|register|mail).php|wp-.*.php|/feed/|index.php|wp-comments-popup.php|wp-links-opml.php|wp-locations.php|sitemap(_index)?.xml|[a-z0-9_-]+-sitemap([0-9]+)?.xml)") {
+            set \$do_not_cache 1;
+        }
+
+        if (\$http_user_agent ~* " Android |\(iPad|Android; Tablet; .+Firefox") {
+            set \$device "tablet";
+        }
+
+        if (\$http_user_agent ~* " Android .+ Mobile |\(iPhone|\(iPod|IEMobile|Android; Mobile; .+Firefox|Windows Phone") {
+            set \$device "smart";
+        }
+
+        fastcgi_cache        wpcache;
+        fastcgi_cache_key    "\$device:\$request_method:\$scheme://\$host\$request_uri";
+        fastcgi_cache_valid  200 10m;
+        fastcgi_no_cache     \$do_not_cache;
+        fastcgi_cache_bypass \$do_not_cache;
+    }
+}
+_EOL_
+
+sed -i "s/_FQDN_/${FQDN}/g" ${VHOST_HTTPS_WP_CONF}
 
 }
 
-OPENSSL_CERTGEN() {
-  CERTDIR=/etc/${WEBSERVER}/CERTS/${NEWFQDN}/${YEAR}
-  KEYFILE=${CERTDIR}/server.key
-  CSRFILE=${CERTDIR}/server.csr
-  CRTFILE=${CERTDIR}/server.crt
-  BITS=2048
-  DAYS=3650
-  mkdir -p ${CERTDIR}
-  openssl genrsa -out ${KEYFILE} ${BITS}
 
-  [ ! 0 = ${#DN_OU} ] && \
-  openssl req -new -key ${KEYFILE} -out ${CSRFILE} -subj \
-  "/C=${DN_C}/ST=${DN_ST}/L=${DN_L}/O=${DN_O}/OU=${DN_OU}/CN=${DN_CN}" 
+VHOST_CREATECONF_HTTP_NGINX(){
+VHOST_HTTP_CONF=${VHOSTCONF_DIR}/0000_${FQDN}_HTTP.conf
+cat << _EOL_ | tee ${VHOST_HTTP_CONF}
+server {
+    listen 80;
+    server_name _FQDN_;
+    access_log  /home/vhosts/_FQDN_/logs/NGINX/access.log main;
+    error_log   /home/vhosts/_FQDN_/logs/NGINX/error.log warn;
 
-  [ 0 = ${#DN_OU} ] && \
-  openssl req -new -key ${KEYFILE} -out ${CSRFILE} -subj \
-  "/C=${DN_C}/ST=${DN_ST}/L=${DN_L}/O=${DN_O}/CN=${DN_CN}" 
+    charset UTF-8;
+    client_max_body_size 16M;
+    root  /home/vhosts/_FQDN_/DocumentRoot;
+    index index.php index.html index.htm;
 
-  openssl x509 -in ${CSRFILE} -days ${DAYS} -req \
-  -signkey ${KEYFILE} > ${CRTFILE}
+    location / {
+        try_files \$uri \$uri/ /index.php?\$args;
+    }
+
+    location = /favicon.ico {
+        log_not_found off;
+        access_log off;
+    }
+
+    location ~* /\.well-known {
+        allow all;
+    }
+
+    location ~* /\. {
+        deny all;
+    }
+
+    location ~ [^/]\.php(/|$) {
+
+        fastcgi_split_path_info ^(.+?\.php)(/.*)$;
+        if (!-f \$document_root\$fastcgi_script_name) {
+                return 404;
+        }
+        fastcgi_pass 127.0.0.1:9000;
+        fastcgi_index index.php;
+        fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
+        include fastcgi_params;
+        fastcgi_buffers 256 128k;
+        fastcgi_buffer_size 128k;
+        fastcgi_intercept_errors on;
+        fastcgi_read_timeout 120s;
+    }
+}
+_EOL_
+
+sed -i "s/_FQDN_/${FQDN}/g" ${VHOST_HTTP_CONF}
+
 }
 
-NGINX_REPOFILE=/etc/yum.repos.d/nginx.repo
-NGINX_REPO_GEN() {
+VHOST_CREATECONF_HTTP_NGINX_WP(){
+VHOST_HTTP_WP_CONF=${VHOSTCONF_DIR}/0000_${FQDN}_WPHTTP.conf
+cat << _EOL_ | tee ${VHOST_HTTP_WP_CONF}
+server {
+    listen 80;
+    server_name _FQDN_;
+    access_log  /home/vhosts/_FQDN_/logs/NGINX/access.log main;
+    error_log   /home/vhosts/_FQDN_/logs/NGINX/error.log warn;
+
+    # rewrite ^(.*)\$ https://_FQDN_$request_uri permanent; # SSL ONLY
+    charset UTF-8;
+    client_max_body_size 16M;
+    root  /home/vhosts/_FQDN_/DocumentRoot;
+    index index.php index.html index.htm;
+
+    rewrite /wp-admin$ \$scheme://\$host\$uri/ permanent;
+
+    location / {
+        try_files \$uri \$uri/ /index.php?\$args;
+    }
+
+    location = /favicon.ico {
+        log_not_found off;
+        access_log off;
+    }
+
+    location ~* /\.well-known {
+        allow all;
+    }
+
+    location ~* /\. {
+        deny all;
+    }
+
+    location ~* /(?:uploads|files)/.*\.php$ {
+        deny all;
+    }
+
+    location ~* /wp-login\.php|/wp-admin/((?!admin-ajax\.php).)*$ {
+
+        satisfy any;
+        allow 0.0.0.0/0;
+        allow 127.0.0.1;
+          deny all;
+          auth_basic "basic authentication";
+          auth_basic_user_file  "/home/vhosts/_FQDN_/.htpasswd";
+
+        location ~ [^/]\.php(/|$) {
+            fastcgi_split_path_info ^(.+?\.php)(/.*)$;
+            if (!-f \$document_root\$fastcgi_script_name) {
+                return 404;
+            }
+            fastcgi_pass 127.0.0.1:9000;
+            fastcgi_index index.php;
+            fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
+            include fastcgi_params;
+            fastcgi_buffers 256 128k;
+            fastcgi_buffer_size 128k;
+            fastcgi_intercept_errors on;
+            fastcgi_read_timeout 120s;
+
+        }
+
+    }
+
+    location ~ [^/]\.php(/|$) {
+
+        fastcgi_split_path_info ^(.+?\.php)(/.*)$;
+        if (!-f \$document_root\$fastcgi_script_name) {
+                return 404;
+        }
+        fastcgi_pass 127.0.0.1:9000;
+        fastcgi_index index.php;
+        fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
+        include fastcgi_params;
+        fastcgi_buffers 256 128k;
+        fastcgi_buffer_size 128k;
+        fastcgi_intercept_errors on;
+        fastcgi_read_timeout 120s;
+
+        set \$do_not_cache 1; ## page cache
+        set \$device "pc";
+
+        if (\$request_method = POST) {
+            set \$do_not_cache 1;
+        }
+
+        if (\$query_string != "") {
+            set \$do_not_cache 1;
+        }
+
+        if (\$http_cookie ~* "comment_author|wordpress_[a-f0-9]+|wp-postpass|wordpress_no_cache|wordpress_logged_in") {
+            set \$do_not_cache 1;
+        }
+
+        if (\$request_uri ~* "(/wp-admin/|/xmlrpc.php|/wp-(app|cron|login|register|mail).php|wp-.*.php|/feed/|index.php|wp-comments-popup.php|wp-links-opml.php|wp-locations.php|sitemap(_index)?.xml|[a-z0-9_-]+-sitemap([0-9]+)?.xml)") {
+            set \$do_not_cache 1;
+        }
+
+        if (\$http_user_agent ~* " Android |\(iPad|Android; Tablet; .+Firefox") {
+            set \$device "tablet";
+        }
+
+        if (\$http_user_agent ~* " Android .+ Mobile |\(iPhone|\(iPod|IEMobile|Android; Mobile; .+Firefox|Windows Phone") {
+            set \$device "smart";
+        }
+
+        fastcgi_cache        wpcache;
+        fastcgi_cache_key    "\$device:\$request_method:\$scheme://\$host\$request_uri";
+        fastcgi_cache_valid  200 10m;
+        fastcgi_no_cache     \$do_not_cache;
+        fastcgi_cache_bypass \$do_not_cache;
+    }
+
+}
+_EOL_
+
+sed -i "s/_FQDN_/${FQDN}/g" ${VHOST_HTTP_WP_CONF}
+
+}
+
+# ================================================================ #
+
+
+# ================================================================ #
+# Nginxをインストールする NGINX_INSTALL 関数
+NGINX_INSTALL(){
+NGINX_REPOFILE=${YUMREPODIR}/nginx.repo
 cat << '_EOL_' | tee ${NGINX_REPOFILE}
 [nginx]
 name=nginx repo
@@ -1181,571 +1104,460 @@ baseurl=http://nginx.org/packages/mainline/centos/7/$basearch/
 gpgcheck=0
 enabled=1
 _EOL_
-}
 
-NGINX_INSTALL() {
-  NGINX_REPO_URI=http://nginx.org/packages/centos/7/noarch/RPMS/nginx-release-centos-7-0.el7.ngx.noarch.rpm
-  NGINX_REPO_HTTPSTATS=$(curl -LI ${NGINX_REPO_URI} -o /dev/null -w '%{http_code}\n' -s)
-  if [ ${NGINX_REPO_HTTPSTATS} = 200 ];
-  then
-    yum -y install ${NGINX_REPO_URI}
-    if [ ! 0 = $(cat ${NGINX_REPOFILE} | egrep mainline > /dev/null ; echo $?) ];
-    then
-      sed -i "/^baseurl/s/packages/packages\/mainline/" ${NGINX_REPOFILE}
-    fi
-  else    
-    NGINX_REPO_GEN
-  fi
-  if [ -f ${NGINX_REPOFILE} ];
-  then
-    yum -y install nginx
-  fi
+NGINX_PACKAGES=(
+nginx
+nginx-module-geoip
+)
 
-  yum -y --enablerepo=epel install spawn-fcgi fcgi-devel
-  mkdir -p /root/src/fcgiwrap
-  wget http://github.com/gnosek/fcgiwrap/tarball/master -O /root/src/fcgiwrap/fcgiwrap.tar.gz
-  tar xvzf /root/src/fcgiwrap/fcgiwrap.tar.gz
-  cd gnosek-fcgiwrap-*
-  autoreconf -i
-  ./configure
-  make
-  make install
+yum -y install ${NGINX_PACKAGES[@]}
 
-  mkdir -p /etc/sysconfig/BACKUP/
-  cp -p /etc/sysconfig/spawn-fcgi /etc/sysconfig/BACKUP/spawn-fcgi.orig
-  echo "OPTIONS=\"-u ${ADMINUSERNAME}                 \
-        -g ${ADMINUSERNAME}                           \
-        -a 127.0.0.1                                  \
-        -p 9001                                       \
-        -P /var/run/spawn-fcgi-${ADMINUSERNAME}.pid   \
-        -- /usr/local/sbin/fcgiwrap\""              | \
-    sed -e "s/[[:space:]]\{1,\}/ /g"                | \
-    tee -a /etc/sysconfig/spawn-fcgi
+NGINX_CONF=/etc/nginx/nginx.conf
+cp -p ${NGINX_CONF}{,.ORIG}
 
-}
+sed -i "/^[[:space:]]\{0,\}worker_processes/s/[[:digit:]]\{1,\}/auto/" ${NGINX_CONF}
 
-NGINX_VHOSTCONF_CREATE() {
-mkdir -p /etc/nginx/BACKUP
-cp -p /etc/nginx/nginx.conf /etc/nginx/BACKUP/nginx.conf.orig
-sed -i "/^worker_processes/s/[0-9]*;$/auto;/" /etc/nginx/nginx.conf
+# 最初のブロックの最初の行を捕まえて変数 FIRST_BLOCK_STARTLINE に代入する
+FIRST_BLOCK_STARTLINE=$(
+                       cat ${NGINX_CONF}                                        | \
+                       egrep "^[[:space:]]{0,}[[:alnum:]]{1,}[[:space:]]{0,}\{" | \
+                       head -n 1
+                      )
 
-cat << _EOL_ | tee ${VHOSTCONF}
-upstream php-fpm-${ADMINUSERNAME} {
-    ip_hash;
-    server unix:/var/run/php-fpm-${ADMINUSERNAME}.sock;
-}
+# FIRST_BLOCK_STARTLINE の前の行にgeoipモジュールを動的に読み込む記述を追加する
+sed -i "/^${FIRST_BLOCK_STARTLINE}/i \
+load_module modules\/ngx_http_geoip_module\.so\;\n\
+load_module modules\/ngx_stream_geoip_module\.so\;\n" ${NGINX_CONF}
 
-server {
-    listen                       80 default_server;
-    server_name                  ${NEWFQDN};
-    access_log                   ${ACCESSLOG}  main;
-    error_log                    ${ERRORLOG};
-
-    location / {
-        root                     ${DROOTDIR};
-        index                    index.php index.html index.htm;
-        ##--@WORDPRESS@--#### WordPressのパーマリンク設定をカスタム構造に ##
-        ##--@WORDPRESS@--##if (-f \$request_filename) {
-        ##--@WORDPRESS@--##        expires 30d;
-        ##--@WORDPRESS@--##}
-        ##--@WORDPRESS@--##if (!-e \$request_filename) {
-        ##--@WORDPRESS@--##        rewrite ^.+?(\$/wp-.*) \$1 last;
-        ##--@WORDPRESS@--##        rewrite ^.+?(/.*\.php)\$ \$1 last;
-        ##--@WORDPRESS@--##        rewrite ^ /index.php last;
-        ##--@WORDPRESS@--##}
-    }
-
-    location ~ \.php\$ {
-        root                     ${DROOTDIR};
-        fastcgi_pass             php-fpm-${ADMINUSERNAME}; # FOR_PHP-FPM
-        #fastcgi_pass             127.0.0.1:9000;           # FOR_HHVM
-        fastcgi_index            index.php;
-        fastcgi_param            SCRIPT_FILENAME  \$document_root/\$fastcgi_script_name;
-        client_max_body_size     256M;
-        include                  fastcgi_params;
-    }
-
-    location ~ \.pl\$ {
-        gzip                     off;
-        root                     ${DROOTDIR};
-        include                  /etc/nginx/fastcgi_params;
-        fastcgi_pass             127.0.0.1:9001;
-        fastcgi_index            index.pl;
-        fastcgi_param            SCRIPT_FILENAME \$document_root/\$fastcgi_script_name;
-    }
-
-    location ~ \.cgi\$ {
-        gzip                     off;
-        root                     ${DROOTDIR};
-        include                  /etc/nginx/fastcgi_params;
-        fastcgi_pass             127.0.0.1:9001;
-        fastcgi_index            index.cgi;
-        fastcgi_param            SCRIPT_FILENAME \$document_root/\$fastcgi_script_name;
-    }
-
-    error_page                   404             /404.html;
-    location = /404.html {
-        root                     /usr/share/${WEBSERVER}/html;
-        internal;
-    }
-
-    error_page                   500 502 503 504 /50x.html;
-    location = /50x.html {
-        root                     /usr/share/${WEBSERVER}/html;
-        internal;
-    }
-}
-
-server {
-    listen                       443 ssl;
-    server_name                  ${NEWFQDN};
-    access_log                   ${ACCESSLOG}  main;
-    error_log                    ${ERRORLOG};
-
-    ssl_certificate              ${CERTDIR}/server.crt;
-    ssl_certificate_key          ${CERTDIR}/server.key;
-
-    ssl_session_timeout          5m;
-    ssl_protocols                TLSv1.2 TLSv1.1 TLSv1;
-    ssl_ciphers ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES256-GCM-SHA384:DHE-RSA-AES128-GCM-SHA256:DHE-DSS-AES128-GCM-SHA256:kEDH+AESGCM:ECDHE-RSA-AES128-SHA256:ECDHE-ECDSA-AES128-SHA256:ECDHE-RSA-AES128-SHA:ECDHE-ECDSA-AES128-SHA:ECDHE-RSA-AES256-SHA384:ECDHE-ECDSA-AES256-SHA384:ECDHE-RSA-AES256-SHA:ECDHE-ECDSA-AES256-SHA:DHE-RSA-AES128-SHA256:DHE-RSA-AES128-SHA:DHE-DSS-AES128-SHA256:DHE-RSA-AES256-SHA256:DHE-DSS-AES256-SHA:DHE-RSA-AES256-SHA:AES128-GCM-SHA256:AES256-GCM-SHA384:AES128-SHA256:AES256-SHA256:AES128-SHA:AES256-SHA:AES:CAMELLIA:DES-CBC3-SHA:!aNULL:!eNULL:!EXPORT:!DES:!RC4:!MD5:!PSK:!aECDH:!EDH-DSS-DES-CBC3-SHA:!EDH-RSA-DES-CBC3-SHA:!KRB5-DES-CBC3-SHA;
-    ssl_prefer_server_ciphers    on;
-
-    location / {
-        root                     ${DROOTDIR};
-        index                    index.php index.html index.htm;
-        ##--@WORDPRESS@--#### WordPressのパーマリンク設定をカスタム構造に ##
-        ##--@WORDPRESS@--##if (-f \$request_filename) {
-        ##--@WORDPRESS@--##        expires 30d;
-        ##--@WORDPRESS@--##}
-        ##--@WORDPRESS@--##if (!-e \$request_filename) {
-        ##--@WORDPRESS@--##        rewrite ^.+?(\$/wp-.*) \$1 last;
-        ##--@WORDPRESS@--##        rewrite ^.+?(/.*\.php)\$ \$1 last;
-        ##--@WORDPRESS@--##        rewrite ^ /index.php last;
-        ##--@WORDPRESS@--##}
-    }
-
-    location ~ \.php\$ {
-        root                     ${DROOTDIR};
-        fastcgi_pass             php-fpm-${ADMINUSERNAME}; # FOR_PHP-FPM
-        #fastcgi_pass             127.0.0.1:9000;           # FOR_HHVM
-        fastcgi_index            index.php;
-        fastcgi_param            SCRIPT_FILENAME  \$document_root/\$fastcgi_script_name;
-        client_max_body_size     256M;
-        include                  fastcgi_params;
-    }
-
-    location ~ \.pl\$ {
-        gzip                     off;
-        root                     ${DROOTDIR};
-        include                  /etc/nginx/fastcgi_params;
-        fastcgi_pass             127.0.0.1:9001;
-        fastcgi_index            index.pl;
-        fastcgi_param            SCRIPT_FILENAME \$document_root/\$fastcgi_script_name;
-    }
-
-    location ~ \.cgi\$ {
-        gzip                     off;
-        root                     ${DROOTDIR};
-        include                  /etc/nginx/fastcgi_params;
-        fastcgi_pass             127.0.0.1:9001;
-        fastcgi_index            index.cgi;
-        fastcgi_param            SCRIPT_FILENAME \$document_root/\$fastcgi_script_name;
-    }
-
-    error_page                   404             /404.html;
-    location = /404.html {
-        root                     /usr/share/${WEBSERVER}/html;
-        internal;
-    }
-
-    error_page                   500 502 503 504 /50x.html;
-    location = /50x.html {
-        root                     /usr/share/${WEBSERVER}/html;
-        internal;
-    }
-}
-_EOL_
-
-ERROR_404_HTMLFILE=/usr/share/${WEBSERVER}/html/404.html
-if [ ! -f ${ERROR_404_HTMLFILE} ];
+# WordPressをインストールする場合の処理
+if [ ${WPINSTALL_CHECK} = YES ];
 then
-cat << _EOL_ | tee ${ERROR_404_HTMLFILE}
-<!DOCTYPE HTML PUBLIC \"-//IETF//DTD HTML 2.0//EN\">
-  <html>
-    <head>
-      <title>404 Not Found</title>
-    </head>
-    <body>
-      <h1>Not Found</h1>
-      <p>The requested URL was not found on this server.</p>
-      <hr>
-      <address>Ahoche/1.9.19 Server at ${ADMINUSER_VHOST} Port 80</address>
-    </body>
-  </html>
+# httpブロックの行を捕まえて変数 MAIN_HTTP_NEXTLINE に代入する
+MAIN_HTTP_NEXTLINE=$(
+                     cat ${NGINX_CONF}                                        | \
+                     egrep "^[[:space:]]{0,}http[[:space:]]{0,}\{"            | \
+                     head -n 1
+                    )
+
+# MAIN_HTTP_NEXTLINE の下の行に ヘッダコントロールの記述を追記する
+sed -i "/^${MAIN_HTTP_NEXTLINE}/a \
+fastcgi_ignore_headers \"Vary\" \"Cache-Control\" \"Expires\"\;\n" \
+${NGINX_CONF}
+
+# MAIN_HTTP_NEXTLINE の下の行に fastcgi_cache_path の記述を追記する
+sed -i "/^${MAIN_HTTP_NEXTLINE}/a \
+fastcgi_cache_path \/var\/cache\/nginx\/wordpress levels=1:2 keys_zone=wpcache:30m max_size=512M inactive=600m\;\n" \
+${NGINX_CONF}
+
+fi
+
+# WEBサーバーがNGINXなら php-fpm.d/www.ini を置換する
+PHPFPM_WWWCONF=/etc/php-fpm.d/www.conf
+cp -p ${PHPFPM_WWWCONF}{,.ORIG}
+sed -i "/^[[:space:]]\{0,\}user/s/apache/nginx/"  ${PHPFPM_WWWCONF}
+sed -i "/^[[:space:]]\{0,\}group/s/apache/nginx/" ${PHPFPM_WWWCONF}
+
+# WEBサーバーがNGINXなら phpセッションディレクトリの権限を変更する
+PHPCACHEDIR=/var/lib/php
+for DIRS in $(echo ${PHPCACHEDIR}/*) ; do chgrp nginx ${DIRS} ; done
+
+}
+
+# ================================================================ #
+
+
+# ================================================================ #
+
+# Apacheをインストールする APACHE_INSTALL 関数
+APACHE_INSTALL(){
+APACHE_PACKAGES=(
+httpd
+mod_ssl
+)
+
+yum -y install ${APACHE_PACKAGES[@]}
+
+APACHE_CONF=/etc/httpd/conf/httpd.conf
+cp -p ${APACHE_CONF}{,.ORIG}
+
+sed -i "/^[[:space:]]\{0,\}DocumentRoot/d"                                                ${APACHE_CONF}
+sed -i "/^[[:space:]]\{0,\}ScriptAlias/d"                                                 ${APACHE_CONF}
+sed -i "/^<Directory \"\/var\/www\/html\">$/,/^<\/Directory>$/d"                          ${APACHE_CONF}
+sed -i "/^<Directory \"\/var\/www\/cgi-bin\">$/,/^<\/Directory>$/d"                       ${APACHE_CONF}
+sed -i "/^[[:space:]]\{0,\}DirectoryIndex/s/index.html/index.php index.html index.htm/g"  ${APACHE_CONF}
+}
+
+VHOSTCONF_CREATE_APACHE(){
+TMP_VHOSTCONF_CREATE_APACHE
+if [ ${FQDN_DIG_STATUS_RESULT} = YES ];
+then
+  APACHE_START
+  CREATE_CERT
+  TMP_VHOSTCONF_DISABLE_APACHE
+  VHOSTCONF_DISABLE_APACHE
+  VHOST_CREATECONF_HTTP_REDIRECT_APACHE
+  VHOST_CREATECONF_HTTPS_APACHE
+else
+  VHOST_CREATECONF_HTTP_APACHE
+fi
+}
+
+TMP_VHOSTCONF_CREATE_APACHE(){
+TMP_VHOSTCONF=${VHOSTCONF_DIR}/0000_TMP_${FQDN}.conf
+cat << _EOL_ | tee ${TMP_VHOSTCONF}
+<VirtualHost _default_:*>
+  DocumentRoot /home/vhosts/_FQDN_/DocumentRoot
+  <Directory "/home/vhosts/_FQDN_/DocumentRoot">
+      Require all granted
+  </Directory>
+</VirtualHost>
 _EOL_
+sed -i "s/_FQDN_/${FQDN}/g" ${TMP_VHOSTCONF}
+
+echo ${FQDN} | tee ${DROOTDIR}/index.html
+
+}
+
+TMP_VHOSTCONF_DISABLE_APACHE(){
+APACHE_BACKUPDIR=/etc/httpd/conf.d/BACKUP
+mkdir -p ${APACHE_BACKUPDIR}
+mv ${TMP_VHOSTCONF} ${APACHE_BACKUPDIR}
+APACHE_START
+}
+
+VHOST_CREATECONF_HTTP_REDIRECT_APACHE(){
+APACHE_SSL_CONF=${VHOSTCONF_DIR}/ssl.conf
+VHOST_REDIRECT_CONF=${VHOSTCONF_DIR}/0000_${FQDN}_REDIRECT.conf
+
+if [ -f ${APACHE_SSL_CONF} ];
+then
+  mkdir -p ${APACHE_BACKUPDIR}
+  cp -p ${APACHE_SSL_CONF} ${APACHE_BACKUPDIR}/${APACHE_SSL_CONF}.ORIG
+  sed -i "/^<VirtualHost/,/^<\/VirtualHost>$/d;/^[[:space:]]\{0,\}#/d;/^[[:space:]]\{0,\}$/d" \
+    ${APACHE_SSL_CONF}
+else
+  if [ 0 = $(rpm -q mod_ssl) ];
+  then
+    SSLCONF_CREATE_APACHE
+  else
+    yum -y install mod_ssl
+    SSLCONF_CREATE_APACHE
+  fi
+fi
+
+cat << _EOL_ | tee ${VHOST_REDIRECT_CONF}
+<VirtualHost *:80>
+        DocumentRoot /home/vhosts/_FQDN_/DocumentRoot
+        ServerName _FQDN_
+        <Directory "/home/vhosts/_FQDN_/DocumentRoot">
+                Require all granted
+                AllowOverride All
+                Options FollowSymlinks
+        </Directory>
+        <ifModule mod_rewrite.c>
+                RewriteEngine On
+                RewriteCond %{HTTPS} off
+                RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [R,L]
+        </ifModule>
+</VirtualHost>
+_EOL_
+sed -i "s/_FQDN_/${FQDN}/g" ${VHOST_REDIRECT_CONF}
+}
+
+VHOST_CREATECONF_HTTPS_APACHE(){
+VHOST_HTTPS_CONF=${VHOSTCONF_DIR}/0000_${FQDN}_HTTPS.conf
+cat << _EOL_ | tee ${VHOST_HTTPS_CONF}
+<VirtualHost *:443>
+    DocumentRoot /home/vhosts/_FQDN_/DocumentRoot
+    ServerName _FQDN_
+    ErrorLog /home/vhosts/_FQDN_/logs/APACHE/ssl_error.log
+    CustomLog /home/vhosts/_FQDN_/logs/APACHE/ssl_access.log combined env=!no_log
+    LogLevel warn
+    SSLEngine on
+    SSLProtocol -All +TLSv1 +TLSv1.1 +TLSv1.2
+    SSLCipherSuite ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-SHA384:ECDHE-RSA-AES256-SHA384:ECDHE-ECDSA-AES128-SHA256:ECDHE-RSA-AES128-SHA256 
+    SSLCertificateFile /etc/letsencrypt/live/_FQDN_/fullchain.pem
+    SSLCertificateKeyFile /etc/letsencrypt/live/_FQDN_/privkey.pem 
+    BrowserMatch "MSIE [2-5]" \
+    nokeepalive ssl-unclean-shutdown \
+    downgrade-1.0 force-response-1.0
+    <Directory "/home/vhosts/_FQDN_/DocumentRoot">
+        Require all granted
+        AllowOverride All
+        Options FollowSymlinks
+    </Directory>
+</VirtualHost>
+
+_EOL_
+sed -i "s/_FQDN_/${FQDN}/g" ${VHOST_HTTPS_CONF}
+}
+
+SSLCONF_CREATE_APACHE(){
+cat << _EOL_ | tee ${APACHE_SSL_CONF}
+Listen 443 https
+SSLPassPhraseDialog exec:/usr/libexec/httpd-ssl-pass-dialog
+SSLSessionCache         shmcb:/run/httpd/sslcache(512000)
+SSLSessionCacheTimeout  300
+SSLRandomSeed startup file:/dev/urandom  256
+SSLRandomSeed connect builtin
+SSLCryptoDevice builtin
+_EOL_
+}
+
+VHOST_CREATECONF_HTTP_APACHE(){
+VHOST_HTTP_CONF=${VHOSTCONF_DIR}/0000_${FQDN}_HTTP.conf
+cat << _EOL_ | tee ${VHOST_HTTP_CONF}
+<VirtualHost *:80>
+    DocumentRoot /home/vhosts/_FQDN_/DocumentRoot
+    ServerName _FQDN_
+    ErrorLog /home/vhosts/_FQDN_/logs/APACHE/error.log
+    CustomLog /home/vhosts/_FQDN_/logs/APACHE/access.log combined
+    LogLevel warn
+    <Directory "/home/vhosts/_FQDN_/DocumentRoot">
+        Require all granted
+        AllowOverride All
+        Options FollowSymlinks
+    </Directory>
+</VirtualHost>
+_EOL_
+sed -i "s/_FQDN_/${FQDN}/g" ${VHOST_HTTP_CONF}
+}
+
+# ================================================================ #
+
+
+# ================================================================ #
+WEBSERVER_SHARED_FUNCTION(){
+
+# WEBサーバーを選択する変数 WEBSERVER に代入された値を
+# 綺麗にする (大文字へ統一、Apacheとhttpdの表記ゆれをAPACHEへ統一)
+if [ ! ${#WEBSERVER} = 0 ];
+then
+  WEBSERVER_UPPERCASE=$(echo ${WEBSERVER} | sed -e "s/\(.*\)/\U\1/")
+  WEBSERVER=${WEBSERVER_UPPERCASE}
+  if [ ${WEBSERVER_UPPERCASE} = HTTPD ];
+  then
+    WEBSERVER=APACHE
+  fi
+else
+  WEBSERVER=NGINX
+fi
+
+if [ ${WEBSERVER} = NGINX ];
+then
+  NGINX_INSTALL
+fi
+
+if [ ${WEBSERVER} = APACHE ];
+then
+  APACHE_INSTALL
+fi
+
+WEBMASTER_GROUP_ADD_STATUS=$(
+                             cat /etc/group           | \
+                             egrep ${WEBMASTER_GROUP} > \
+                             /dev/null                ; \
+                             echo $?
+                            )
+if [ ${WEBMASTER_GROUP_ADD_STATUS} = 0 ];
+then
+  GROUPADD_WEBSERVER_USER
+fi
+
+if [ ${WEBSERVER} = NGINX ];
+then
+  WEBSERVER_USER=nginx
+  VHOSTCONF_DIR=/etc/nginx/conf.d
+  VHOSTCONF_CREATE_NGINX
+fi
+
+if [ ${WEBSERVER} = APACHE ];
+then
+  WEBSERVER_USER=apache
+  VHOSTCONF_DIR=/etc/httpd/conf.d
+  VHOSTCONF_CREATE_APACHE
 fi
 
 }
 
-NGINX_INIT() {
-  if [ ! ${PHPVERSION} = ${PHPVERSION_NEWEST} ];
+NGINX_START(){
+NGINX_START_STATUS=$(systemctl status nginx > /dev/null ; echo $?)
+
+if [ ${NGINX_START_STATUS} = 3 ];
+then
+  systemctl start nginx
+  systemctl enable nginx
+fi
+if [ ${NGINX_START_STATUS} = 0 ];
+then
+  systemctl restart nginx
+  systemctl enable nginx
+fi
+}
+
+APACHE_START(){
+APACHE_START_STATUS=$(systemctl status httpd > /dev/null ; echo $?)
+
+if [ ${APACHE_START_STATUS} = 3 ];
+then
+  systemctl start httpd
+  systemctl enable httpd
+fi
+if [ ${APACHE_START_STATUS} = 0 ];
+then
+  systemctl restart httpd
+  systemctl enable httpd
+fi
+}
+
+PHPFPM_START(){
+PHPFPM_START_STATUS=$(systemctl status php-fpm > /dev/null ; echo $?)
+
+if [ ${PHPFPM_START_STATUS} = 3 ];
+then
+  systemctl start php-fpm
+  systemctl enable php-fpm
+fi
+if [ ${PHPFPM_START_STATUS} = 0 ];
+then
+  systemctl restart php-fpm
+  systemctl enable php-fpm
+fi
+}
+
+GROUPADD_WEBSERVER_USER(){
+APACHE_USER_ADD_STATUS=$(
+                             cat /etc/passwd          | \
+                             egrep ^apache            > \
+                             /dev/null                ; \
+                             echo $?
+                        )
+NGINX_USER_ADD_STATUS=$(
+                            cat /etc/passwd           | \
+                            egrep ^nginx              > \
+                            /dev/null                 ; \
+                            echo $?
+)
+  if [ ${APACHE_USER_ADD_STATUS} = 0 ];
   then
-    chgrp -R ${WEBSERVER} /var/lib/php/
-  else
-    chgrp -R ${WEBSERVER} /var/opt/remi/${PHP_NEWEST_NUM}/lib/php/
+    gpasswd -a ${ADMINUSER_ID} ${WEBMASTER_GROUP}
+    gpasswd -a apache          ${WEBMASTER_GROUP}
   fi
-  mkdir /etc/${WEBSERVER}/conf.d/BACKUP/
-  mv /etc/${WEBSERVER}/conf.d/*.conf /etc/${WEBSERVER}/conf.d/BACKUP/
-
-  NGINX_VHOSTCONF_CREATE
-  # WordPressをインストールする場合、バーチャルホストの設定ファイルを置換する
-  if [ ${ADMINUSER_VHOST_CMS_INSTALL} = on -a ${ADMINUSER_VHOST_CMS_TOOL} = wordpress ];
+  if [ ${NGINX_USER_ADD_STATUS}  = 0 ];
   then
-    sed -i "s/##--@WORDPRESS@--##//g" ${VHOSTCONF}
-  fi
-
-}
-
-HTTPD_INSTALL() {
-  yum -y install httpd mod_ssl
-}
-
-HTTPD_INIT() {
-  HTTPDCONF=/etc/${WEBSERVER}/conf/httpd.conf
-  SSLCONF=/etc/${WEBSERVER}/conf.d/ssl.conf 
-  mkdir -p /etc/${WEBSERVER}/conf{,.d}/BACKUP
-
-  cp -p ${HTTPDCONF} $(dirname ${HTTPDCONF})/BACKUP/$(basename ${HTTPDCONF}).orig
-  echo -e "\n\nServerTokens\tProd\n\n" | tee -a ${HTTPDCONF}
-  echo -e "KeepAlive\ton\n\n" | tee -a ${HTTPDCONF}
-  sed -i "/DirectoryIndex[[:space:]]index.html/s/$/ index.cgi/" ${HTTPDCONF}
-  sed -i "/AddHandler[[:space:]]cgi-script/s/#//" ${HTTPDCONF}
-  sed -i "/^#ServerName/a ServerName ${NEWFQDN}:80" ${HTTPDCONF} # <- これがないと起動しない
-
-  SSLCONF_DELETE_STARTLINE=$(cat ${SSLCONF} | cat -n | egrep VirtualHost | head -n 1 | awk '{print $1}')
-  SSLCONF_DELETE_ENDLINE=$(cat ${SSLCONF} | cat -n | egrep VirtualHost | tail -n 1 | awk '{print $1}')
-
-  if [ ! ${PHPVERSION} = ${PHPVERSION_NEWEST} ];
-  then
-    PHP_CGI_PROG=/usr/bin/php-cgi
-  else
-    PHP_CGI_PROG=/opt/remi/${PHP_NEWEST_NUM}/root/usr/bin/php-cgi
-  fi
-
-  # suexec用のPHPラッパーを生成する
-  SUEXEC_PHP_WRAPDIR=/var/www/users_bin/${ADMINUSERNAME}
-  SUEXEC_PHP_WRAPPER=${SUEXEC_PHP_WRAPDIR}/php-cgi
-  mkdir -p ${SUEXEC_PHP_WRAPDIR}
-  echo -e "#\!/bin/bash\nexec ${PHP_CGI_PROG} -c /home/${ADMINUSERNAME}/etc/php.ini" | \
-    sed -e "s/\\\//"                                                                 | \
-    tee ${SUEXEC_PHP_WRAPPER}
-  chmod -R 755 ${SUEXEC_PHP_WRAPDIR}
-  chown -R ${ADMINUSERNAME}. ${SUEXEC_PHP_WRAPDIR}
-
-cat << _EOL_ | tee ${VHOSTCONF}
-SuexecUserGroup ${ADMINUSERNAME} ${ADMINGROUPNAME}
-
-$(cat ${SSLCONF} | sed -e "${SSLCONF_DELETE_STARTLINE},${SSLCONF_DELETE_ENDLINE}d" | egrep -v "(^#)" | egrep .)
-
-<VirtualHost ${IPADDR}:80>
-  DocumentRoot ${DROOTDIR}
-  ServerName ${NEWFQDN}
-
-  ErrorLog ${ERRORLOG}
-  CustomLog ${ACCESSLOG} combined
-
-  <Directory ${DROOTDIR}>
-    # .htaccess setting
-    AllowOverride AuthConfig FileInfo Indexes Limit
-    Options FollowSymLinks ExecCGI Includes
-    AddHandler fcgid-script .php
-    FCGIWrapper ${SUEXEC_PHP_WRAPPER} .php
-    DirectoryIndex index.html index.htm index.html.var index.php index.cgi
-
-    Order Deny,Allow
-    Allow from all
-    Require all granted
-  </Directory>
-
-  <Files ~ "^\.">
-    # Deny from all
-    Require all denied
-  </Files>
-
-  <Files ~ ".*conf.*">
-    # config.inc.php
-    # Deny from all
-    Require all denied
-  </Files>
-</VirtualHost>
-
-<VirtualHost ${IPADDR}:443>
-  SSLEngine on
-  SSLProtocol all -SSLv2
-  SSLCipherSuite HIGH:MEDIUM:!aNULL:!MD5:!SEED:!IDEA
-  SSLCertificateFile ${CERTDIR}/server.crt
-  SSLCertificateKeyFile ${CERTDIR}/server.key
-
-  DocumentRoot ${DROOTDIR}
-  ServerName ${NEWFQDN}
-
-  ErrorLog ${ERRORLOG}
-  CustomLog ${ACCESSLOG} combined
-
-  <Directory ${DROOTDIR}>
-    # .htaccess setting
-    AllowOverride AuthConfig FileInfo Indexes Limit
-    Options FollowSymLinks ExecCGI Includes
-    AddHandler fcgid-script .php
-    FCGIWrapper ${SUEXEC_PHP_WRAPPER} .php
-    DirectoryIndex index.html index.htm index.html.var index.php index.cgi
-
-    Order Deny,Allow
-    Allow from all
-    Require all granted
-  </Directory>
-
-  <Files ~ "^\.">
-    # Deny from all
-    Require all denied
-  </Files>
-
-  <Files ~ ".*conf.*">
-    # config.inc.php
-    # Deny from all
-    Require all denied
-  </Files>
-
-  <Files ~ "\.(cgi|shtml|phtml|php3?)$">
-    SSLOptions +StdEnvVars
-  </Files>
-
-  BrowserMatch "MSIE [2-5]" \
-         nokeepalive ssl-unclean-shutdown \
-         downgrade-1.0 force-response-1.0
-  CustomLog ${ACCESSLOG} \
-          "%t %h %{SSL_PROTOCOL}x %{SSL_CIPHER}x \"%r\" %b"
-</VirtualHost>
-
-_EOL_
-
-  mv /etc/${WEBSERVER}/conf.d/welcome.conf /etc/${WEBSERVER}/conf.d/BACKUP/
-  mv ${SSLCONF} /etc/${WEBSERVER}/conf.d/BACKUP/
-  chmod 755 /var/log/${WEBSERVER}
-
-}
-
-LOGROTATION_SETTING() {
-  # 2016/06/25 nginxでもhttpdでも以下正規表現で置換できることを確認済
-  mkdir -p /etc/logrotate.d/BACKUP
-  cp -p /etc/logrotate.d/${WEBSERVER} /etc/logrotate.d/BACKUP/${WEBSERVER}.orig
-  SED_VHOSTLOGDIR=$(echo ${VHOSTLOGDIR} | sed -e "s/\//\\\\\//g")
-  sed -i "s/{/${SED_VHOSTLOGDIR}\/\*\/access_log ${SED_VHOSTLOGDIR}\/\*\/error_log {/" /etc/logrotate.d/${WEBSERVER}
-}
-
-DAEMON_ENABLE_COMMANDS() {
-  systemctl enable ${WEBSERVER}
-  if [ ${WEBSERVER} = nginx ];
-  then
-    if [ ! ${PHPVERSION} = ${PHPVERSION_NEWEST} ];
-    then
-      systemctl enable php-fpm spawn-fcgi
-    else
-      systemctl enable ${PHP_NEWEST_NUM}-php-fpm spawn-fcgi
-    fi
+    gpasswd -a ${ADMINUSER_ID} ${WEBMASTER_GROUP}
+    gpasswd -a nginx           ${WEBMASTER_GROUP}
   fi
 }
 
-WEBSERVER_COMMON_INIT() {
-  LOGROTATION_SETTING
-  DAEMON_ENABLE_COMMANDS
+# ================================================================ #
+
+
+# ================================================================ #
+WEBMASTER_CREATE
+CREATE_VHOST
+PHP_INSTALL_FUNCTION
+LETSENCRYPT_INSTALL
+WEBSERVER_SHARED_FUNCTION
+# ================================================================ #
+
+
+# ================================================================ #
+
+# wp-cliをインストールする WPCLI_INSTALL 関数
+WPCLI_INSTALL(){
+WPCLI=/usr/local/bin/wp
+curl -o ${WPCLI} ${WPCLI_DOWNLOADURI}
+chmod 755 ${WPCLI}
 }
 
+# WordPressをインストールする WORDPRESS_INSTALL 関数
 WORDPRESS_INSTALL() {
-  # wp-cli Download
-  mkdir -p /home/${ADMINUSERNAME}/bin
-  curl -o /home/${ADMINUSERNAME}/bin/wp ${WPCLI_DOWNLOADURI}
-  chmod 755 /home/${ADMINUSERNAME}/bin/wp
+WP_DEFINE_FSMETHOD_WORD="define('FS_METHOD', 'direct');"
+WP_DROOT=${DROOTDIR}
+WP_CONFIG=${WP_DROOT}/wp-config.php
 
-  WP_DEFINE_FSMETHOD_WORD="define('FS_METHOD', 'direct');"
+# WordPressをダウンロードする
+${WPCLI}                               \
+  --allow-root                         \
+  core                                 \
+  download                             \
+  --path=${WP_DROOT}                   \
+  --locale=${WPLOCALE}
 
-  WP_DROOT=/home/${ADMINUSERNAME}/${ADMINUSER_VHOST}/public_html
-  WP_CONFIG=${WP_DROOT}/wp-config.php
-  WPCLI=/home/${ADMINUSERNAME}/bin/wp
+# WordPressの初期設定を行う
+${WPCLI}                               \
+  --allow-root                         \
+  core                                 \
+  config                               \
+  --path=${WP_DROOT}                   \
+  --dbname=${DB_NAME}                  \
+  --dbuser=${DB_USER}                  \
+  --dbpass=${DB_PASS}                  \
+  --dbhost=localhost
 
-  ${WPCLI}                               \
-    --allow-root                         \
-    core                                 \
-    download                             \
-    --path=${WP_DROOT}                   \
-    --locale=${WPLOCALE}
+[ ! -f ${WP_CONFIG}.ORIG ] && sed -i.ORIG "/^<?php/a ${WP_DEFINE_FSMETHOD_WORD}" ${WP_CONFIG}
 
-  ${WPCLI}                               \
-    --allow-root                         \
-    core                                 \
-    config                               \
-    --path=${WP_DROOT}                   \
-    --dbname=${MYSQLDBNAME}              \
-    --dbuser=${DBUSERNAME}               \
-    --dbpass=${DBUSERPASS}               \
-    --dbhost=${MYSQLSERVER_ADDRESS}
-
-  [ ! -f ${WP_CONFIG}.ORIG ] && sed -i.ORIG "/^<?php/a ${WP_DEFINE_FSMETHOD_WORD}" ${WP_CONFIG}
-
-  ${WPCLI}                               \
-    --allow-root                         \
-    core                                 \
-    install                              \
-    --path=${WP_DROOT}                   \
-    --url=http://${ADMINUSER_VHOST}      \
-    --title="${WP_SITETITLE}"            \
-    --admin_user=${WP_ADMINUSERNAME}     \
-    --admin_password=${WP_ADMINPASS}     \
-    --admin_email=${WP_ADMINMAILADDRESS}
-
-  chown -R ${ADMINUSERNAME}. /home/${ADMINUSERNAME}
-
-  # ruby development environment Install
-  yum -y install   \
-    byacc          \
-    gdbm-devel     \
-    libffi-devel   \
-    ncurses-devel  \
-    tcl            \
-    tcl-devel      \
-    zlib-devel
-
-  echo '%_topdir %(echo $HOME)/rpmbuild' > /root/.rpmmacros
-  mkdir -p /root/rpmbuild/{SPECS,SOURCES,BUILD,BUILDROOT,RPMS,SRPMS}
-
-  mkdir -p /root/bin
-  curl -o /root/bin/RUBYGETTER ${RUBYGETTERURI}
-  chmod -R 700 /root/bin
-  RUBYGETTER
-
-  cp -p $(ls /root/src/ruby*) /root/rpmbuild/SOURCES/
-
-  RUBYFULLVERSION=$(ls /root/src/ | grep ruby | sed -e "s/^ruby-//;s/.tar.gz//")
-  RUBYABI=$(ls /root/src/ | grep ruby | sed -e "s/^ruby-//;s/.tar.gz//;s/.[0-9]*$//")
-  RUBYRELEASE=2
-  RUBYSPECFILE=/root/rpmbuild/SPECS/ruby.spec
-
-  curl -o ${RUBYSPECFILE} ${RUBYSPECURI}
-
-  cp -p ${RUBYSPECFILE}{,.orig}
-  #sed -i "/^%define rubyver/s/[0-9.]*$/${RUBYFULLVERSION}/" ${RUBYSPECFILE}
-  sed -i "/^%define[[:space:]]rubyver/s/[0-9.]*$/${RUBYFULLVERSION}/" ${RUBYSPECFILE}
-  #sed -i "/^%define rubyabi/s/[0-9.]*$/${RUBYABI}/" ${RUBYSPECFILE}
-  sed -i "/^%define[[:space:]]rubyabi/s/[0-9.]*$/${RUBYABI}/" ${RUBYSPECFILE}
-  sed -i "s/db4-devel//g" ${RUBYSPECFILE}
-
-  rpmbuild -bb ${RUBYSPECFILE}
-  RUBYRPM=/root/rpmbuild/RPMS/$(uname -m)/ruby-${RUBYFULLVERSION}-${RUBYRELEASE}.el7.centos.$(uname -m).rpm
-
-  yum -y localinstall ${RUBYRPM}
-
-  # wordmove install
-  gem install wordmove
-  wordmove init
-  cp -p Movefile{,.orig}
-  sed -i "s/vhost.local/${NEWFQDN}/" Movefile
-  sed -i "s/\/root/\/home\/${ADMINUSERNAME}\/${NEWFQDN}\/public_html/" Movefile
-  sed -i "/local:/,/staging:/s/database_name/${MYSQLDBNAME}/" Movefile
-  sed -i "/local:/,/staging:/s/\"user\"/\"${DBUSERNAME}\"/" Movefile
-  sed -i "/local:/,/staging:/s/\"password\"/\"${DBUSERPASS}\"/" Movefile
-  sed -i "/local:/,/staging:/s/127.0.0.1/localhost/" Movefile
-
-  chown -R ${ADMINUSERNAME}.        ${ADMINUSER_VHOSTDIR} /home/${ADMINUSERNAME}
-
-}
-
-CMS_INSTALL() {
-  ALLOW_CMS_INSTALL_LIST=(
-    wordpress
-  )
-
-  CMS_INSTALL_ALLOW_FLAG=$(
-                           echo ${ALLOW_CMS_INSTALL_LIST[@]} | \
-                           sed -e "s/[[:space:]]/\|/g;s/^/echo ${ADMINUSER_VHOST_CMS_TOOL} \| egrep \"\^\(/;s/$/\)\$\"/" | \
-                           sh > /dev/null ; echo $?
-                           )
-
-  if [ ${CMS_INSTALL_ALLOW_FLAG} = 0 ];
-  then
-    if [ ${ADMINUSER_VHOST_CMS_TOOL} = wordpress ];
-    then
-      WORDPRESS_INSTALL
-    fi
-  fi
-}
-
-FIREWALLD_SETTINGS() {
-  FIREWALLD_ZONENAME=public
-  if [ 3 = $(systemctl status firewalld.service > /dev/null ; echo $?) ];
-  then
-    systemctl start firewalld.service
-  else
-    :
-  fi
-  systemctl enable firewalld.service
-  firewall-cmd --zone=${FIREWALLD_ZONENAME} --add-service http
-  firewall-cmd --zone=${FIREWALLD_ZONENAME} --add-service http  --permanent
-  firewall-cmd --zone=${FIREWALLD_ZONENAME} --add-service https
-  firewall-cmd --zone=${FIREWALLD_ZONENAME} --add-service https --permanent
-  firewall-cmd --zone=${FIREWALLD_ZONENAME} --add-service smtp
-  firewall-cmd --zone=${FIREWALLD_ZONENAME} --add-service smtp  --permanent
-  # SSH待ち受けポートを22から変更した場合の穴開けを行う。IPアドレス制限はない。
-  [ ! 22 = ${SSHPORT} ] && \
-    firewall-cmd --zone=public --add-port=${SSHPORT}/tcp
-  [ ! 22 = ${SSHPORT} ] && \
-    firewall-cmd --zone=public --add-port=${SSHPORT}/tcp --permanent
-  # 信頼するネットワーク(配列TRUSTSUBNETに格納した値)からのみSSH接続(TCP22)を受け付ける
-  for SUBNETS in ${TRUSTSUBNET[@]}
-  do
-    firewall-cmd --direct             \
-      --add-rule ipv4                 \
-      filter INPUT 1 -m conntrack --ctstate NEW -m tcp -p tcp --dport 22 -s ${SUBNETS} -j ACCEPT
-    firewall-cmd --permanent --direct \
-      --add-rule ipv4                 \
-      filter INPUT 1 -m conntrack --ctstate NEW -m tcp -p tcp --dport 22 -s ${SUBNETS} -j ACCEPT
-  done
-}
-
-WEBSERVER_INSTALL_AND_INIT(){
-  if [ ${WEBSERVER} = nginx ];
-  then
-    NGINX_INSTALL
-    NGINX_INIT
-  fi
-  if [ ${WEBSERVER} = httpd ];
-  then
-    HTTPD_INSTALL
-    HTTPD_INIT
-  fi
-  PHP_INIT # WEBサーバーインストールの後に実行すること
-  WEBSERVER_COMMON_INIT
-}
-
-# 関数実行
-exec >> ${LOGFILE}
-exec 2>&1
-ENV_CHECK
-SELINUX_SETTING
-YUM_REPOS_INSTALL
-USEFUL_TOOLS_INSTALL
-ADMINUSER_CREATE
-INIT_SSH
-MYSQL_INSTALL
-MYSQL_INIT
-PHPVER_SELECT
-PHP_AND_PERL_INSTALL
-OPENSSL_CERTGEN
-WEBSERVER_INSTALL_AND_INIT
-FIREWALLD_SETTINGS
-
-ADMINUSER_VHOST_CMS_INSTALL_FLAG=$(echo ${ADMINUSER_VHOST_CMS_INSTALL} | egrep -i "(yes|on|0|enable)" > /dev/null ; echo $?)
-if [ ${ADMINUSER_VHOST_CMS_INSTALL_FLAG} = 0 ];
+SSLPORT=443
+HTTPS_LISTEN_STATUS=$(ss -lnt | awk '{print $4}' | egrep :${SSLPORT} > /dev/null ; echo $?)
+if [ ${HTTPS_LISTEN_STATUS} = 0 ];
 then
-  CMS_INSTALL
+  SITE_URL_SCHEME=https
+else
+  SITE_URL_SCHEME=http
 fi
+
+${WPCLI}                               \
+  --allow-root                         \
+  core                                 \
+  install                              \
+  --path=${WP_DROOT}                   \
+  --url=${SITE_URL_SCHEME}://${FQDN}   \
+  --title="${WORDPRESS_TITLE}"         \
+  --admin_user=${ADMINUSER_ID}         \
+  --admin_password=${ADMINUSER_PW}     \
+  --admin_email=${ADMINUSER_MAIL}
+
+mv ${WP_CONFIG} ${VHOSTDIR}
+}
+
+if [ ${WPINSTALL_CHECK} = YES ];
+then
+  WPCLI_INSTALL
+  WORDPRESS_INSTALL
+fi
+
+# ================================================================ #
+
+
+# ================================================================ #
+
+# Pico をインストールする PICO_INSTALL 関数
+PICO_INSTALL(){
+cd ${DROOTDIR}
+git clone ${PICOURL} .
+curl -sS ${COMPOSERURL} | php
+php composer.phar install
+cp -pr content-sample content
+cd ${DROOTDIR}/content
+mv index.md{,.ORIG}
+cd
+}
+
+if [ ${CMSINSTALL_SPEC} = PICO ];
+then
+  PICO_INSTALL
+fi
+
+# ================================================================ #
+
+
+# ================================================================ #
+# 最後に /home/vhosts 以下のオーナーとパーミッションを変更する
+CREATE_VHOST
+# ================================================================ #
+
+##--@--##
+yum -y --enablerepo=epel,remi,${PHPREPO} update
 systemctl reboot
+# EOF
