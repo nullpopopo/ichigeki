@@ -578,7 +578,7 @@ PACKAGELIST=(
              $(
                yum --enablerepo=${PHPREPO} list    | \
                egrep ^php                          | \
-               egrep -v "(pecl|php-twig-ctwig|snmp|odbc|yac|smbclient|sqlsrv|php-mysql\.$(uname -m)|phalcon2|php\.$(uname -m))" | \
+               egrep -v "(pecl|php-twig-ctwig|php-oci8|snmp|odbc|yac|smbclient|sqlsrv|php-mysql\.$(uname -m)|phalcon2|php\.$(uname -m))" | \
                egrep ${PHPREPO}$                   | \
                awk '{print $1}'
                )
